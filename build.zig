@@ -20,6 +20,7 @@ pub fn build(b: *std.Build) void {
     // Add zon options
     const options = b.addOptions();
     options.addOption([]const u8, "version", zon.version);
+    options.addOption([]const u8, "name", "Noe");
 
     // It's also possible to define more custom flags to toggle optional features
     // of this build script using `b.option()`. All defined flags (including
