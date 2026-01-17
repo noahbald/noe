@@ -9,12 +9,25 @@ const Texel = @import("texel.zig");
 
 const Canvas = @This();
 
+const Private = struct {
+    /// The length of each row in `buffer`.
+    width: u16,
+    /// The number of row in `buffer`.
+    height: u16,
+    /// The offset from the top of this canvas.
+    top: u16,
+    /// The offset from the top of this canvas.
+    left: u16,
+};
+
 /// The list of text elements contained within the canvas as a flattened 2D buffer.
 buffer: []Texel,
-/// The length of each row in `buffer`.
+/// The length of each row of this canvas.
 width: u16,
-/// The number of rows in `buffer`.
+/// The number of rows of this canvas.
 height: u16,
+/// If this is a subcanvas, data of how this canvas is relative to the root canvas.
+private: ?Private = null,
 
 pub fn format(self: Canvas, writer: *std.Io.Writer) std.Io.Writer.Error!void {
     // Hide cursor, then reposition cursor

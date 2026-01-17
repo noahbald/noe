@@ -1,7 +1,8 @@
 const std = @import("std");
 
 const Editor = @import("../editor.zig");
-const Commands = @import("../commands.zig");
+
+const Error = error{QuitFailed};
 
 /// The list of editor commands that require no arguments.
 ///
@@ -18,7 +19,7 @@ pub const Static = union(enum) {
     Quit,
     Noop,
 
-    pub fn call(self: Static, editor: *Editor) !void {
+    pub fn call(self: Static, editor: *Editor) Error!void {
         return switch (self) {
             .CursorLeft => cursorLeft(editor),
             .CursorDown => cursorDown(editor),
@@ -58,8 +59,10 @@ fn gotoLineStart(editor: *Editor) void {
 fn gotoLineEnd(editor: *Editor) void {
     editor.cx = editor.private.term.width();
 }
-fn quit(editor: *Editor) !void {
-    try editor.private.term.deinit();
+fn quit(editor: *Editor) Error!void {
+    editor.private.term.deinit() catch {
+        return Error.QuitFailed;
+    };
     std.process.exit(0);
 }
 fn noop(_: *Editor) void {}
