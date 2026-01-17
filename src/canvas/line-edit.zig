@@ -41,16 +41,8 @@ fn drawVisitor(leaf: *const rope.Tree.Leaf, context: *DrawVisitorContext) void {
     while (true) {
         const chunk = iter.next() orelse break;
         for (chunk.slice()) |char| {
-            // Draw gutter
             if (context.col == 0) {
-                var gutterText: [GUTTER_SIZE]u8 = undefined;
-                var stream = std.Io.Writer.fixed(&gutterText);
-                stream.print("{d:>[1]}", .{ context.line + context.row, GUTTER_SIZE }) catch {
-                    // If line number won't fix, just make do
-                };
-                for (gutterText, 0..) |gutterChar, i| {
-                    context.canvas.setChar(i, context.row, @as(u21, gutterChar));
-                }
+                drawGutter(context);
             }
 
             // Handle crlf
@@ -67,5 +59,16 @@ fn drawVisitor(leaf: *const rope.Tree.Leaf, context: *DrawVisitorContext) void {
             context.canvas.setChar(context.col + GUTTER_SIZE + 1, context.row, @as(u21, char));
             context.col += 1;
         }
+    }
+}
+
+fn drawGutter(context: *const DrawVisitorContext) void {
+    var gutterText: [GUTTER_SIZE]u8 = undefined;
+    var stream = std.Io.Writer.fixed(&gutterText);
+    stream.print("{d:>[1]}", .{ context.line + context.row + 1, GUTTER_SIZE }) catch {
+        // If line number won't fit, just make do
+    };
+    for (gutterText, 0..) |gutterChar, i| {
+        context.canvas.setChar(i, context.row, @as(u21, gutterChar));
     }
 }
