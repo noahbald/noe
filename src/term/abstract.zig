@@ -12,6 +12,8 @@ stdout: std.fs.File,
 reader: std.fs.File.Reader,
 writer: std.fs.File.Writer,
 
+pub const Position = struct { col: u16, row: u16 };
+
 /// Creates a terminal handler using the given stdin and stdout references.
 pub fn init(buffer: []u8) Term {
     const stdin = std.fs.File.stdin();
@@ -25,9 +27,13 @@ pub fn deinit(self: *Term, parent: anytype) !void {
     return parent.disableRawMode();
 }
 
-/// Returns a reference to the query's window size.
-pub fn getWindowSize(_: *Term) noreturn {
-    @compileError("abstract method getWindowSize called");
+/// Returns a reference to the query's window size. By moving and reading the cursor from
+/// the farthest possible position.
+pub fn getWindowSize(
+    self: *Term,
+) (std.Io.Writer.Error || std.Io.Reader.StreamError || std.fmt.ParseIntError)!Position {
+    try self.writer.interface.writeAll("\x1b[999C\x1b[999B");
+    return try self.getCursorPosition();
 }
 
 /// Returns the width cached by `getWindowSize`.
@@ -40,9 +46,22 @@ pub fn height(_: *Term) u16 {
     @compileError("abstract method height called");
 }
 
-/// Returns a reference to the query's cursor position.
-pub fn getCursorPosition(_: *Term) noreturn {
-    @compileError("abstract method getCursorPosition called");
+/// Returns the column and row of the cursor.
+pub fn getCursorPosition(
+    self: *Term,
+) (std.Io.Writer.Error || std.Io.Reader.StreamError || std.fmt.ParseIntError)!Position {
+    _ = try self.writer.interface.write("\x1b[6n\r\n");
+
+    var buffer: [32]u8 = undefined;
+    var stream = std.Io.Writer.fixed(&buffer);
+    _ = try self.reader.interface.streamDelimiter(&stream, 'R');
+
+    var tokens = std.mem.tokenizeScalar(u8, &buffer, 'R');
+
+    const row = try std.fmt.parseInt(u16, tokens.next().?, 10);
+    const col = try std.fmt.parseInt(u16, tokens.next().?, 10);
+
+    return .{ .col = col, .row = row };
 }
 
 /// Sends a signal to the terminal to update the cursor position.

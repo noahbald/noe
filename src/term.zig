@@ -5,8 +5,9 @@ const builtin = @import("builtin");
 ///
 /// Includes methods for reading, writing, and controlling the terminal's state.
 pub const Term = switch (builtin.os.tag) {
-    .linux, .macos, .ios, .tvos, .watchos, .visionos, .freebsd, .netbsd, .dragonfly, .openbsd, .serenity, .haiku, .solaris, .illumos, .emscripten, .wasi => @import("term/posix.zig"),
-    // TODO: .windows
+    .linux, .macos, .ios, .tvos, .watchos, .visionos, .freebsd, .netbsd, .dragonfly, .openbsd, .serenity, .haiku, .solaris, .illumos => @import("term/posix.zig"),
+    .windows => @import("term/windows.zig"),
+    .wasi, .emscripten => @import("term/wasi.zig"),
     else => |tag| @compileError(@tagName(tag) ++ " not supported."),
 };
 

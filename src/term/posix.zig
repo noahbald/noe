@@ -3,14 +3,14 @@
 //! Usable wherever termios is usable, i.e. UNIX and WASI platforms.
 const std = @import("std");
 
-const canvas = @import("../canvas.zig");
 const Keypress = @import("../keypress.zig");
 
 const AbstractTerm = @import("abstract.zig");
+pub const Position = AbstractTerm.Position;
 
 const Term = @This();
 const Private = struct {
-    size: std.posix.winsize,
+    size: Position,
 };
 
 super: AbstractTerm,
@@ -34,11 +34,14 @@ fn posixError(code: usize) Error!void {
 
 /// A reference to the first termios state received.
 var initial: ?std.posix.termios = null;
+pub fn handlePanic() void {
+    if (initial) |termios| {
+        std.posix.tcsetattr(std.fs.File.stdin().handle, .FLUSH, termios) catch {};
+    }
+}
 fn handleKill(_: c_int) callconv(.c) void {
     defer std.process.exit(1);
-    if (initial) |termios| {
-        try std.posix.tcsetattr(std.fs.File.stdin().handle, .FLUSH, termios);
-    }
+    handlePanic();
 }
 fn listenKill() void {
     const sa: std.posix.Sigaction = .{
@@ -76,25 +79,18 @@ pub fn deinit(self: *Term) !void {
     return self.super.deinit(self);
 }
 
-/// Returns a reference to `winsize` containing the windows size and
-/// cursor position.
-///
-/// The cursor position may be updated if the raw query fails.
-pub fn getWindowSize(self: *Term) !void {
+/// Caches the result of a cursor position query.
+pub fn getWindowSize(self: *Term) Error!void {
     var size: std.posix.winsize = undefined;
     // Call IO Control Get Window Size
     posixError(std.posix.system.ioctl(self.super.stdout.handle, std.posix.T.IOCGWINSZ, @intFromPtr(&size))) catch |err| {
         // Some systems may not allow `IOCGWINSZ` queries,
         // we can instead move the cursor to a large offset and
         // query where the cursor lands.
-        self.super.writer.interface.writeAll("\x1b[999C\x1b[999B") catch {
-            return err;
-        };
-        size = self.getCursorPosition() catch {
-            return err;
-        };
+        self.private.size = self.super.getWindowSize() catch return err;
+        return;
     };
-    self.private.size = size;
+    self.private.size = .{ .col = size.col, .row = size.row };
 }
 
 /// Returns the width cached by `getWindowSize`.
@@ -107,22 +103,11 @@ pub fn height(self: *Term) u16 {
     return self.private.size.row - 1;
 }
 
-/// Returns a reference to `winsize` containing the cursor position.
+/// Returns the cursor position.
 /// The `col` and `row` values will match the cursor position and
 /// not the true window size.
-pub fn getCursorPosition(self: *Term) !std.posix.winsize {
-    _ = try self.super.writer.interface.write("\x1b[6n\r\n");
-
-    var buffer: [32]u8 = undefined;
-    var stream = std.Io.Writer.fixed(&buffer);
-    _ = try self.super.reader.interface.streamDelimiter(&stream, 'R');
-
-    var tokens = std.mem.tokenizeScalar(u8, &buffer, 'R');
-
-    const row = try std.fmt.parseInt(u16, tokens.next().?, 10);
-    const col = try std.fmt.parseInt(u16, tokens.next().?, 10);
-
-    return .{ .col = col, .row = row, .xpixel = row, .ypixel = col };
+pub fn getCursorPosition(self: *Term) !Position {
+    return self.super.getCursorPosition();
 }
 
 /// Sends a signal to the terminal to update the cursor position.
@@ -134,7 +119,9 @@ pub fn setCursorPosition(self: *Term, x: u16, y: u16) std.Io.Writer.Error!void {
 ///
 /// This must be followed by a call to `disableRawMode` or `deinit` prior to
 /// program exit.
-pub fn enableRawMode(self: *Term) std.posix.TermiosSetError!void {
+pub fn enableRawMode(self: *Term) (std.Io.Writer.Error || std.posix.TermiosSetError)!void {
+    // Enable alternate buffer.
+    try self.super.writer.interface.writeAll("\x1b[?1049h");
     // Disable printing of input keys.
     self.termios.lflag.ECHO = false;
     // Disable line-by-line reading; read byte-by-byte.
@@ -172,6 +159,8 @@ pub fn disableRawMode(self: *Term) (std.Io.Writer.Error || std.posix.TermiosSetE
     if (initial) |termios| {
         try std.posix.tcsetattr(self.super.stdin.handle, .FLUSH, termios);
     }
+    // Disable alternate buffer.
+    try self.super.writer.interface.writeAll("\x1b[?1049l");
 }
 
 /// Reads a single byte from stdin.
@@ -187,6 +176,9 @@ pub fn takeKeypress(self: *Term) !?Keypress {
 comptime {
     const decls = @typeInfo(AbstractTerm).@"struct".decls;
     for (decls) |decl| {
-        std.debug.assert(std.meta.hasMethod(Term, decl.name));
+        if (std.meta.hasMethod(AbstractTerm, decl.name) and !std.meta.hasMethod(Term, decl.name)) {
+            @compileLog(decl.name);
+            @compileError("Posix struct missing abstract method");
+        }
     }
 }

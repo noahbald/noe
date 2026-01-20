@@ -10,6 +10,12 @@ pub const std_options: std.Options = .{
     .fmt_max_depth = 10,
 };
 
+pub const panic = std.debug.FullPanic(cleanup);
+fn cleanup(msg: []const u8, firstTraceAddr: ?usize) noreturn {
+    Term.handlePanic();
+    std.debug.simple_panic.call(msg, firstTraceAddr);
+}
+
 /// Initialize state and start the text editor.
 pub fn run(path: ?[]const u8) !void {
     var buffer: [1024]u8 = undefined;
