@@ -15,12 +15,13 @@ buffer: *const Buffer,
 
 const GUTTER_SIZE = 4;
 
-pub fn draw(self: *const LineEdit, canvas: *Canvas) void {
+pub fn draw(self: *const LineEdit, canvas: *Canvas) [2]u16 {
     const line = self.buffer.scroll;
 
     const slice = self.buffer.buffer.sliceRows(line, line + @as(usize, self.height));
     var context: DrawVisitorContext = .{
         .canvas = canvas,
+        .trimStart = slice.trimStart,
         .line = line,
     };
     const visitor: DrawVisitor = .{
@@ -28,9 +29,16 @@ pub fn draw(self: *const LineEdit, canvas: *Canvas) void {
         .visitLeaf = drawVisitor,
     };
     visitor.visit(slice.tree, &context);
+    const column: u16 = @intCast(@min(
+        self.buffer.cursor.column,
+        self.buffer.buffer.sliceLine(self.buffer.cursor.row).len(),
+    ));
+    const row: u16 = @intCast(self.buffer.cursor.row - self.buffer.scroll);
+    return .{ GUTTER_SIZE + 1 + column, row };
 }
 const DrawVisitorContext = struct {
     canvas: *Canvas,
+    trimStart: usize,
     row: u16 = 0,
     col: u16 = 0,
     line: usize,
@@ -40,7 +48,17 @@ fn drawVisitor(leaf: *const rope.Tree.Leaf, context: *DrawVisitorContext) void {
     var iter = leaf.items.iter();
     while (true) {
         const chunk = iter.next() orelse break;
-        for (chunk.slice()) |char| {
+        var slice = chunk.slice();
+        if (context.trimStart > 0) {
+            if (context.trimStart > slice.len) {
+                context.trimStart -= slice.len;
+                return;
+            } else {
+                slice = slice[context.trimStart..];
+                context.trimStart = 0;
+            }
+        }
+        for (slice) |char| {
             if (context.col == 0) {
                 drawGutter(context);
             }

@@ -24,8 +24,7 @@ const Private = struct {
     window: ?*Buffer,
 };
 
-cx: u16 = 0,
-cy: u16 = 0,
+redraw: bool = true,
 private: Private,
 
 /// Draws empty text area as rows of `'~'`.
@@ -41,11 +40,6 @@ fn drawSplash(c: *Canvas) void {
 
     var text = Text{ .width = string.len, .height = 1, .x = position[0], .y = position[1], .text = string };
     text.draw(c);
-}
-
-fn drawLineEdit(c: *Canvas, window: *const Buffer) void {
-    var lineEdit = LineEdit{ .width = c.width, .height = c.height, .buffer = window };
-    lineEdit.draw(c);
 }
 
 /// Wraps the terminal with an editor and initial state.
@@ -87,19 +81,23 @@ pub fn refresh(self: *Editor) !void {
     defer allocator.free(buffer);
 
     // Draw to canvas then write to terminal.
-    drawEmpty(&canv);
-    if (self.private.window) |window| {
-        drawLineEdit(&canv, window);
-    } else {
-        drawSplash(&canv);
+    if (self.redraw) {
+        drawEmpty(&canv);
+        if (self.private.window) |window| {
+            const cursor = window.draw(&canv);
+            try canv.format(&self.private.term.super.writer.interface);
+            try self.private.term.setCursorPosition(cursor[0], cursor[1]);
+        } else {
+            drawSplash(&canv);
+            try canv.format(&self.private.term.super.writer.interface);
+        }
     }
-    try canv.format(&self.private.term.super.writer.interface);
-    try self.private.term.setCursorPosition(self.cx, self.cy);
 
     // Wait for next input.
     const char = try self.private.term.takeKeypress();
     if (char) |c| {
         try self.processKeypress(c);
+        self.redraw = true;
     }
 }
 

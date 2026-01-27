@@ -36,28 +36,32 @@ pub const Static = union(enum) {
 };
 
 fn cursorLeft(editor: *Editor) void {
-    editor.cx = std.math.sub(u16, editor.cx, 1) catch 0;
+    editor.private.window.?.cursorLeft();
+    editor.private.window.?.rebalanceScroll(editor.private.term.height());
 }
 fn cursorDown(editor: *Editor) void {
-    editor.cy = @min(editor.cy + 1, editor.private.term.height());
+    editor.private.window.?.cursorDown();
+    editor.private.window.?.rebalanceScroll(editor.private.term.height());
 }
 fn cursorUp(editor: *Editor) void {
-    editor.cy = std.math.sub(u16, editor.cy, 1) catch 0;
+    editor.private.window.?.cursorUp();
+    editor.private.window.?.rebalanceScroll(editor.private.term.height());
 }
 fn cursorRight(editor: *Editor) void {
-    editor.cx = @min(editor.cx + 1, editor.private.term.width());
+    editor.private.window.?.cursorRight();
+    editor.private.window.?.rebalanceScroll(editor.private.term.height());
 }
 fn pageUp(editor: *Editor) void {
-    editor.cy = std.math.sub(u16, editor.cy, editor.private.term.height()) catch 0;
+    editor.private.window.?.pageUp(editor.private.term.height());
 }
 fn pageDown(editor: *Editor) void {
-    editor.cy = @min(editor.cy + editor.private.term.height(), editor.private.term.height());
+    editor.private.window.?.pageDown(editor.private.term.height());
 }
 fn gotoLineStart(editor: *Editor) void {
-    editor.cx = 0;
+    editor.private.window.?.gotoLineStart();
 }
 fn gotoLineEnd(editor: *Editor) void {
-    editor.cx = editor.private.term.width();
+    editor.private.window.?.gotoLineEnd();
 }
 fn quit(editor: *Editor) Error!void {
     editor.private.term.deinit() catch {

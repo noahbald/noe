@@ -17,6 +17,7 @@ fn version() std.io.Writer.Error!void {
     try stdout.flush();
 }
 
+pub const panic = noe.panic;
 /// Load arguments, initialize, and run the editor.
 pub fn main() !void {
     var gpa: std.heap.GeneralPurposeAllocator(.{}) = .init;

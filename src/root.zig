@@ -12,7 +12,7 @@ pub const std_options: std.Options = .{
 
 pub const panic = std.debug.FullPanic(cleanup);
 fn cleanup(msg: []const u8, firstTraceAddr: ?usize) noreturn {
-    Term.handlePanic();
+    Term.Term.handlePanic();
     std.debug.simple_panic.call(msg, firstTraceAddr);
 }
 

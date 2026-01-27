@@ -35,9 +35,11 @@ fn posixError(code: usize) Error!void {
 /// A reference to the first termios state received.
 var initial: ?std.posix.termios = null;
 pub fn handlePanic() void {
-    if (initial) |termios| {
-        std.posix.tcsetattr(std.fs.File.stdin().handle, .FLUSH, termios) catch {};
-    }
+    const stdin = std.fs.File.stdin();
+    const stdout = std.fs.File.stdout();
+    var buffer: [1024]u8 = undefined;
+    var writer = stdout.writer(&buffer);
+    _disableRawMode(&writer.interface, stdin) catch {};
 }
 fn handleKill(_: c_int) callconv(.c) void {
     defer std.process.exit(1);
@@ -100,7 +102,7 @@ pub fn width(self: *Term) u16 {
 
 /// Returns the height cached by `getWindowSize`.
 pub fn height(self: *Term) u16 {
-    return self.private.size.row - 1;
+    return self.private.size.row;
 }
 
 /// Returns the cursor position.
@@ -121,7 +123,8 @@ pub fn setCursorPosition(self: *Term, x: u16, y: u16) std.Io.Writer.Error!void {
 /// program exit.
 pub fn enableRawMode(self: *Term) (std.Io.Writer.Error || std.posix.TermiosSetError)!void {
     // Enable alternate buffer.
-    try self.super.writer.interface.writeAll("\x1b[?1049h");
+    _ = try self.super.writer.interface.write("\x1b[?1049h");
+    try self.super.writer.interface.flush();
     // Disable printing of input keys.
     self.termios.lflag.ECHO = false;
     // Disable line-by-line reading; read byte-by-byte.
@@ -153,14 +156,18 @@ pub fn enableRawMode(self: *Term) (std.Io.Writer.Error || std.posix.TermiosSetEr
 
 /// Disables raw mode for the terminal, restoring the user's attributes.
 pub fn disableRawMode(self: *Term) (std.Io.Writer.Error || std.posix.TermiosSetError)!void {
+    try _disableRawMode(&self.super.writer.interface, self.super.stdin);
+}
+fn _disableRawMode(stdout: *std.Io.Writer, stdin: std.fs.File) (std.Io.Writer.Error || std.posix.TermiosSetError)!void {
     // Reset ANSI.
-    try self.super.writer.interface.writeAll("\x1b[0m");
+    try stdout.writeAll("\x1b[0m");
     // Reset termios state.
     if (initial) |termios| {
-        try std.posix.tcsetattr(self.super.stdin.handle, .FLUSH, termios);
+        try std.posix.tcsetattr(stdin.handle, .FLUSH, termios);
     }
     // Disable alternate buffer.
-    try self.super.writer.interface.writeAll("\x1b[?1049l");
+    _ = try stdout.write("\x1b[?1049l");
+    try stdout.flush();
 }
 
 /// Reads a single byte from stdin.

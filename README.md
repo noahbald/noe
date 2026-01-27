@@ -6,15 +6,15 @@ A text editor with modern features; configurable by modification and extensible 
 
 ## Features
 
-- UTF-8 Support
-- Portable across Windows, POSIX, and WASI platforms
-- Helix inspired controls and commands
+- [x] UTF-8 Support
+- [x] Portable across Windows, POSIX, and WASI platforms
+- [ ] Helix inspired controls and commands
 - Modern and simple internals
-  - Written in Zig
-  - Rope for text processing
-  - Tree-sitter integration
-  - LSP support
-  - Zero dependencies
+  - [x] Written in Zig
+  - [x] Rope for text processing
+  - [ ] Tree-sitter integration
+  - [ ] LSP support
+  - [x] Zero dependencies
 
 ## Prior Art
 

@@ -51,6 +51,10 @@ pub fn sliceRows(self: *const Rope, start: usize, end: usize) Slice {
     return self.slice(startByte, endByte);
 }
 
+pub fn sliceLine(self: *const Rope, line: usize) Slice {
+    return self.sliceRows(line, line + 1);
+}
+
 /// Pushes the text to the end of the rope and rebalances the tree.
 pub fn push(self: *Rope, text: []const u8) Error!void {
     var offset: usize = 0;
@@ -192,6 +196,10 @@ pub const Slice = struct {
     tree: *const Tree,
     trimStart: usize,
     trimEnd: usize,
+
+    pub fn len(self: *const Slice) usize {
+        return self.tree.summary().len -| self.trimStart -| self.trimEnd;
+    }
 };
 
 test "read and write" {
