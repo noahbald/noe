@@ -28,6 +28,7 @@ pub fn run(path: ?[]const u8) !void {
     var gpa: std.heap.GeneralPurposeAllocator(.{}) = .init;
     const allocator = gpa.allocator();
     var editor: Editor = try .init(allocator, terminal);
+    editor.status = "Welcome to Noe, Press Ctrl-Q to quit";
     defer {
         editor.deinit(allocator);
         std.debug.assert(gpa.deinit() != .leak);

@@ -70,6 +70,50 @@ pub fn Map(T: type, R: type, C: type) type {
     };
 }
 
+pub fn Flatten(T: type) type {
+    return struct {
+        inner: T,
+        current: ?T.Item = null,
+
+        const Self = @This();
+
+        pub fn next(self: *Self) ?T.Item.Item {
+            if (self.current) |current| {
+                if (current) |item| {
+                    return item;
+                } else {
+                    self.current = null;
+                    return self.next();
+                }
+            } else {
+                if (self.inner.next()) |current| {
+                    self.current = current;
+                    return self.next();
+                } else {
+                    return null;
+                }
+            }
+        }
+    };
+}
+
+pub fn Take(T: type) type {
+    return struct {
+        inner: T,
+        remainder: usize,
+
+        const Self = @This();
+
+        pub fn next(self: *Self) ?T.Item {
+            if (self.remainder == 0) {
+                return null;
+            } else {
+                return self.inner.next();
+            }
+        }
+    };
+}
+
 pub fn ParallelMap(T: type, R: type, C: type) type {
     return struct {
         inner: T,
@@ -99,12 +143,24 @@ pub fn Iter(T: type) type {
             return self.impl.next();
         }
 
+        /// Advances the iterator by a number of steps, usually without
+        /// processing the intermediate values.
+        pub fn skip(self: *Self) void {
+            self.impl.skip();
+        }
+
         /// Returns the exact remaining length of the iterator.
         ///
         /// This method is optional by implementors, and may result in a compile error
         /// if not provided by the implementor.
         pub fn len(self: *const Self) usize {
             return self.impl.len();
+        }
+
+        /// For an iterator of an iterator, returns an iterator over the
+        /// nested items.
+        pub fn flatten(self: Self) Iter(Flatten(T)) {
+            return .{ .impl = .{ .inner = self.impl } };
         }
 
         /// Takes a function and creates an iterator that calls the function on each element.
@@ -120,6 +176,12 @@ pub fn Iter(T: type) type {
         /// The same context will be passed along with each item to the function.
         pub fn mapScope(self: Self, R: type, C: type, f: fn (T, C) R, context: C) Map(Self, R, C) {
             return .{ .inner = self, .f = f, .context = context };
+        }
+
+        /// Returns an iterator that will continue to iterate until `n` items
+        /// have been yielded.
+        pub fn take(self: Self, n: usize) Iter(Take(T)) {
+            return .{ .impl = .{ .inner = self.impl, .remainder = n } };
         }
     };
 }

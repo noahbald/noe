@@ -8,6 +8,7 @@ const arrayVec = @import("rope/array-vec.zig");
 const Chunk = @import("rope/chunk.zig");
 const Point = @import("rope/point.zig");
 const sumTree = @import("rope/sum-tree.zig");
+const iter = @import("iter.zig");
 
 const Rope = @This();
 const SumTree = sumTree.SumTree;
@@ -52,7 +53,7 @@ pub fn sliceRows(self: *const Rope, start: usize, end: usize) Slice {
 }
 
 pub fn sliceLine(self: *const Rope, line: usize) Slice {
-    return self.sliceRows(line, line + 1);
+    return self.sliceRows(line, line);
 }
 
 /// Pushes the text to the end of the rope and rebalances the tree.
@@ -99,7 +100,7 @@ pub fn len(self: *const Rope) usize {
 
 /// Returns the number of newline characters in the rope.
 pub fn lines(self: *const Rope) usize {
-    return self.summary().lines;
+    return self.summary().lines.row;
 }
 
 pub fn pointToOffset(self: *const Rope, point: Point) usize {
@@ -200,9 +201,69 @@ pub const Slice = struct {
     pub fn len(self: *const Slice) usize {
         return self.tree.summary().len -| self.trimStart -| self.trimEnd;
     }
+
+    pub fn visit(
+        self: *const Slice,
+        comptime C: type,
+        comptime E: ?type,
+        f: fn ([]const u8, C) if (E) |_E| _E!void else void,
+        context: C,
+    ) if (E) |_E| _E!void else void {
+        const Context = struct {
+            context: C,
+            trimStart: usize,
+            remainder: usize,
+        };
+        const Visit = struct {
+            pub fn visitLeaf(leaf: *const Tree.Leaf, c: *Context) if (E) |_E| _E!void else void {
+                for (leaf.items.slice()) |chunk| {
+                    var chunkSlice = chunk.slice();
+                    if (c.trimStart > chunkSlice.len) {
+                        c.trimStart -= chunkSlice.len;
+                        continue;
+                    } else if (c.trimStart > 0) {
+                        chunkSlice = chunkSlice[c.trimStart..];
+                        c.trimStart = 0;
+                    }
+                    if (c.remainder == 0) {
+                        break;
+                    } else if (c.remainder < chunkSlice.len) {
+                        chunkSlice = chunkSlice[0..c.remainder];
+                        c.remainder = 0;
+                    } else {
+                        c.remainder -= chunkSlice.len;
+                    }
+                    if (E) |_| {
+                        try f(chunkSlice, c.context);
+                    } else {
+                        f(chunkSlice, c.context);
+                    }
+                }
+            }
+        };
+        const visitor: Tree.ThisVisitor(*Context, E) = .{
+            .visitInternal = null,
+            .visitLeaf = Visit.visitLeaf,
+        };
+        var c: Context = .{
+            .context = context,
+            .trimStart = self.trimStart,
+            .remainder = self.len(),
+        };
+        return visitor.visit(self.tree, &c);
+    }
+
+    /// Writes the contents of the rope to the writer, without flushing it.
+    pub fn format(self: *const Slice, writer: *std.Io.Writer) std.Io.Writer.Error!void {
+        try self.visit(*std.Io.Writer, std.Io.Writer.Error, sliceFormatVisitor, writer);
+    }
+    fn sliceFormatVisitor(chunk: []const u8, context: *std.Io.Writer) std.Io.Writer.Error!void {
+        _ = try context.write(chunk);
+    }
 };
 
-test "read and write" {
+test read {
+    // Arrange
     var gpa = std.heap.GeneralPurposeAllocator(.{}).init;
     const alloc = gpa.allocator();
     // input
@@ -211,18 +272,92 @@ test "read and write" {
     // output
     var buffer: [44]u8 = undefined;
     var writer = std.Io.Writer.fixed(&buffer);
-
     var rope: Rope = try .init(alloc);
-    try rope.read(&reader);
-    try writer.print("{f}", .{rope});
 
+    // Act
+    try rope.read(&reader);
+
+    // Assert
+    try writer.print("{f}", .{rope});
     try std.testing.expect(source.len > Chunk.MAX_BASE);
     try std.testing.expectEqualStrings(source, &buffer);
     rope.deinit();
     try std.testing.expectEqual(gpa.deinit(), std.heap.Check.ok);
 }
 
-test "point to offset" {
+test slice {
+    // Arrange
+    var gpa = std.heap.GeneralPurposeAllocator(.{}).init;
+    const alloc = gpa.allocator();
+    // input
+    const source = "The quick brown fox\njumps\nover\nthe\nlazy\ndog.";
+    try std.testing.expect(source.len > Chunk.MAX_BASE);
+    var reader = std.Io.Reader.fixed(source);
+    // output
+    var buffer: [15]u8 = undefined;
+    var writer = std.Io.Writer.fixed(&buffer);
+    var rope: Rope = try .init(alloc);
+    try rope.read(&reader);
+
+    // Act
+    const ropeSlice = rope.slice(10, 25);
+
+    // Assert
+    try writer.print("{f}", .{ropeSlice});
+    try std.testing.expectEqualStrings("brown fox\njumps", &buffer);
+    rope.deinit();
+    try std.testing.expectEqual(gpa.deinit(), std.heap.Check.ok);
+}
+
+test sliceRows {
+    // Arrange
+    var gpa = std.heap.GeneralPurposeAllocator(.{}).init;
+    const alloc = gpa.allocator();
+    // input
+    const source = "The quick brown fox\njumps\nover\nthe\nlazy\ndog.";
+    var reader = std.Io.Reader.fixed(source);
+    // output
+    var buffer: [10]u8 = undefined;
+    var writer = std.Io.Writer.fixed(&buffer);
+    var rope: Rope = try .init(alloc);
+    try rope.read(&reader);
+
+    // Act
+    const ropeSlice = rope.sliceRows(1, 2);
+
+    // Assert
+    try writer.print("{f}", .{ropeSlice});
+    try std.testing.expect(source.len > Chunk.MAX_BASE);
+    try std.testing.expectEqualStrings("jumps\nover", &buffer);
+    rope.deinit();
+    try std.testing.expectEqual(gpa.deinit(), std.heap.Check.ok);
+}
+
+test sliceLine {
+    // Arrange
+    var gpa = std.heap.GeneralPurposeAllocator(.{}).init;
+    const alloc = gpa.allocator();
+    // input
+    const source = "The quick brown fox\njumps\nover\nthe\nlazy\ndog.";
+    try std.testing.expect(source.len > Chunk.MAX_BASE);
+    var reader = std.Io.Reader.fixed(source);
+    // output
+    var buffer: [5]u8 = undefined;
+    var writer = std.Io.Writer.fixed(&buffer);
+    var rope: Rope = try .init(alloc);
+    try rope.read(&reader);
+
+    // Act
+    const ropeSlice = rope.sliceLine(1);
+
+    // Assert
+    try writer.print("{f}", .{ropeSlice});
+    try std.testing.expectEqualStrings("jumps", &buffer);
+    rope.deinit();
+    try std.testing.expectEqual(gpa.deinit(), std.heap.Check.ok);
+}
+
+test pointToOffset {
     var gpa = std.heap.GeneralPurposeAllocator(.{}).init;
     const alloc = gpa.allocator();
     // input

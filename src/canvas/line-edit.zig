@@ -17,18 +17,13 @@ const GUTTER_SIZE = 4;
 
 pub fn draw(self: *const LineEdit, canvas: *Canvas) [2]u16 {
     const line = self.buffer.scroll;
-
     const slice = self.buffer.buffer.sliceRows(line, line + @as(usize, self.height));
     var context: DrawVisitorContext = .{
         .canvas = canvas,
-        .trimStart = slice.trimStart,
         .line = line,
     };
-    const visitor: DrawVisitor = .{
-        .visitInternal = null,
-        .visitLeaf = drawVisitor,
-    };
-    visitor.visit(slice.tree, &context);
+    slice.visit(*DrawVisitorContext, null, drawVisitor, &context);
+
     const column: u16 = @intCast(@min(
         self.buffer.cursor.column,
         self.buffer.buffer.sliceLine(self.buffer.cursor.row).len(),
@@ -38,45 +33,30 @@ pub fn draw(self: *const LineEdit, canvas: *Canvas) [2]u16 {
 }
 const DrawVisitorContext = struct {
     canvas: *Canvas,
-    trimStart: usize,
     row: u16 = 0,
     col: u16 = 0,
     line: usize,
 };
-const DrawVisitor = rope.Tree.ThisVisitor(*DrawVisitorContext, null);
-fn drawVisitor(leaf: *const rope.Tree.Leaf, context: *DrawVisitorContext) void {
-    var iter = leaf.items.iter();
-    while (true) {
-        const chunk = iter.next() orelse break;
-        var slice = chunk.slice();
-        if (context.trimStart > 0) {
-            if (context.trimStart > slice.len) {
-                context.trimStart -= slice.len;
-                return;
-            } else {
-                slice = slice[context.trimStart..];
-                context.trimStart = 0;
-            }
+fn drawVisitor(chunk: []const u8, context: *DrawVisitorContext) void {
+    if (context.row > context.canvas.height) return;
+    for (chunk) |char| {
+        if (context.col == 0) {
+            drawGutter(context);
         }
-        for (slice) |char| {
-            if (context.col == 0) {
-                drawGutter(context);
-            }
 
-            // Handle crlf
-            if (char == '\r') {
-                context.col = 0;
-                continue;
-            } else if (char == '\n') {
-                context.col = 0;
-                context.row += 1;
-                continue;
-            }
-
-            // Draw chars
-            context.canvas.setChar(context.col + GUTTER_SIZE + 1, context.row, @as(u21, char));
-            context.col += 1;
+        // Handle crlf
+        if (char == '\r') {
+            context.col = 0;
+            continue;
+        } else if (char == '\n') {
+            context.col = 0;
+            context.row += 1;
+            continue;
         }
+
+        // Draw chars
+        context.canvas.setChar(context.col + GUTTER_SIZE + 1, context.row, @as(u21, char));
+        context.col += 1;
     }
 }
 

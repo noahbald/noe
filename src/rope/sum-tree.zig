@@ -1,5 +1,6 @@
 const std = @import("std");
 
+const iters = @import("../iter.zig");
 const Ordering = @import("../ordering.zig").Ordering;
 const arrayVec = @import("array-vec.zig");
 
@@ -24,63 +25,46 @@ pub const Bias = enum {
 /// An error can provided as a type of "break" or as a legitimate error to prematurely end the
 /// visitor.
 pub fn Visitor(comptime T: type, comptime C: type, comptime E: ?type) type {
-    if (E) |_E| {
-        return struct {
-            /// A function that will be called with each internal node of the sum-tree.
-            visitInternal: ?fn (*const SumTree(T).Internal, C) _E!void,
-            /// A function that will be called with each leaf node of the sum-tree.
-            visitLeaf: ?fn (*const SumTree(T).Leaf, C) _E!void,
+    const R = if (E) |_E| _E!void else void;
+    return struct {
+        /// A function that will be called with each internal node of the sum-tree.
+        visitInternal: ?fn (*const SumTree(T).Internal, C) R,
+        /// A function that will be called with each leaf node of the sum-tree.
+        visitLeaf: ?fn (*const SumTree(T).Leaf, C) R,
 
-            const Self = @This();
+        const Self = @This();
 
-            /// Initiates the visitor against the node and all it's descendants.
-            pub fn visit(self: *const Self, node: *const SumTree(T), context: C) _E!void {
-                switch (node.*) {
-                    .internal => |*internal| {
-                        if (self.visitInternal) |f| {
+        /// Initiates the visitor against the node and all it's descendants.
+        pub fn visit(self: *const Self, node: *const SumTree(T), context: C) R {
+            switch (node.*) {
+                .internal => |*internal| {
+                    if (self.visitInternal) |f| {
+                        if (E) |_| {
                             try f.?(internal, context);
-                        }
-                        for (internal.childTrees.slice()) |child| {
-                            try self.visit(child, context);
-                        }
-                    },
-                    .leaf => |*leaf| {
-                        if (self.visitLeaf) |f| {
-                            try f(leaf, context);
-                        }
-                    },
-                }
-            }
-        };
-    } else {
-        return struct {
-            /// A function that will be called with each internal node of the sum-tree.
-            visitInternal: ?fn (*const SumTree(T).Internal, C) void,
-            /// A function that will be called with each leaf node of the sum-tree.
-            visitLeaf: ?fn (*const SumTree(T).Leaf, C) void,
-
-            const Self = @This();
-
-            /// Initiates the visitor against the node and all it's descendants.
-            pub fn visit(self: *const Self, node: *const SumTree(T), context: C) void {
-                switch (node.*) {
-                    .internal => |*internal| {
-                        if (self.visitInternal) |f| {
+                        } else {
                             f.?(internal, context);
                         }
-                        for (internal.childTrees.slice()) |child| {
+                    }
+                    for (internal.childTrees.slice()) |child| {
+                        if (E) |_| {
+                            try self.visit(child, context);
+                        } else {
                             self.visit(child, context);
                         }
-                    },
-                    .leaf => |*leaf| {
-                        if (self.visitLeaf) |f| {
+                    }
+                },
+                .leaf => |*leaf| {
+                    if (self.visitLeaf) |f| {
+                        if (E) |_| {
+                            try f(leaf, context);
+                        } else {
                             f(leaf, context);
                         }
-                    },
-                }
+                    }
+                },
             }
-        };
-    }
+        }
+    };
 }
 
 pub fn Dimensions(comptime D1: type, comptime D2: type, comptime D3: ?type) type {
@@ -136,6 +120,10 @@ pub fn SumTree(comptime T: type) type {
             summary: T.Summary,
             itemSummaries: ArrayVec(T.Summary, TREE_MAX),
             items: ArrayVec(T, TREE_MAX),
+
+            pub fn iter(self: *const Leaf) iters.Iter(iters.SliceIter(T)) {
+                return self.items.iter();
+            }
         };
 
         /// A node that contains child nodes.

@@ -30,7 +30,7 @@ pub fn rebalanceScroll(self: *Buffer, pageHeight: u16) void {
     } else if (cursor < top) {
         self.scroll = self.cursor.row -| SCROLL_THRESHOLD;
     } else if (cursor > bottom) {
-        self.scroll = (cursor + SCROLL_THRESHOLD) -| pageHeight;
+        self.scroll = cursor -| pageHeight;
     }
 }
 pub fn cursorLeft(self: *Buffer) void {
@@ -55,15 +55,15 @@ pub fn cursorUp(self: *Buffer) void {
     self.cursor.row = self.cursor.row -| 1;
 }
 pub fn cursorDown(self: *Buffer) void {
-    self.cursor.row = @min(self.buffer.len(), self.cursor.row + 1);
+    self.cursor.row = @min(self.buffer.lines(), self.cursor.row + 1);
 }
 pub fn pageUp(self: *Buffer, pageHeight: usize) void {
     self.cursor.row = self.cursor.row -| pageHeight;
     self.scroll = self.scroll -| pageHeight;
 }
 pub fn pageDown(self: *Buffer, pageHeight: usize) void {
-    self.cursor.row = @min(self.buffer.summary().lines.row, self.cursor.row + pageHeight);
-    self.scroll = @min(self.cursor.row, self.scroll + pageHeight);
+    self.cursor.row = @min(self.buffer.lines(), self.cursor.row + pageHeight);
+    self.scroll = @min(self.cursor.row - 1, self.scroll + pageHeight);
 }
 pub fn gotoLineStart(self: *Buffer) void {
     self.cursor.column = 0;

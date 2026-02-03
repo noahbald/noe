@@ -19,9 +19,11 @@ pub const Dynamic = union(enum) {
 };
 
 pub fn open(editor: *Editor, args: []const u8) Error!void {
+    const cwd = std.fs.cwd().realpathAlloc(editor.private.allocator, ".") catch return Error.ReadError;
     const path = std.fs.cwd().realpathAlloc(editor.private.allocator, args) catch return Error.ReadError;
+    const displayPath = if (std.mem.startsWith(u8, path, cwd)) path[cwd.len + 1 ..] else path;
+    editor.private.allocator.free(cwd);
     const file = std.fs.openFileAbsolute(path, .{}) catch return Error.ReadError;
-    editor.private.allocator.free(path);
     const stat = file.stat() catch return Error.ReadError;
 
     switch (stat.kind) {
@@ -37,7 +39,7 @@ pub fn open(editor: *Editor, args: []const u8) Error!void {
             var rope = try Rope.init(editor.private.allocator);
             rope.read(&reader.interface) catch return Error.RopeError;
 
-            try editor.private.buffers.append(editor.private.allocator, .{ .buffer = rope, .path = path });
+            try editor.private.buffers.append(editor.private.allocator, .{ .buffer = rope, .path = displayPath });
             editor.private.window = &editor.private.buffers.items[editor.private.buffers.items.len - 1];
         },
         else => return Error.PathKindError,

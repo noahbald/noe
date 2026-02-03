@@ -35,27 +35,32 @@ pub const Static = union(enum) {
     }
 };
 
+// TODO: calls to rebalanceScroll should dynamically consider the window's rendered position
+const WINDOW_PADDING = 2;
+
 fn cursorLeft(editor: *Editor) void {
     editor.private.window.?.cursorLeft();
-    editor.private.window.?.rebalanceScroll(editor.private.term.height());
+    editor.private.window.?.rebalanceScroll(editor.private.term.height() - WINDOW_PADDING);
 }
 fn cursorDown(editor: *Editor) void {
     editor.private.window.?.cursorDown();
-    editor.private.window.?.rebalanceScroll(editor.private.term.height());
+    editor.private.window.?.rebalanceScroll(editor.private.term.height() - WINDOW_PADDING);
 }
 fn cursorUp(editor: *Editor) void {
     editor.private.window.?.cursorUp();
-    editor.private.window.?.rebalanceScroll(editor.private.term.height());
+    editor.private.window.?.rebalanceScroll(editor.private.term.height() - WINDOW_PADDING);
 }
 fn cursorRight(editor: *Editor) void {
     editor.private.window.?.cursorRight();
-    editor.private.window.?.rebalanceScroll(editor.private.term.height());
+    editor.private.window.?.rebalanceScroll(editor.private.term.height() - WINDOW_PADDING);
 }
 fn pageUp(editor: *Editor) void {
     editor.private.window.?.pageUp(editor.private.term.height());
+    editor.private.window.?.rebalanceScroll(editor.private.term.height() - WINDOW_PADDING);
 }
 fn pageDown(editor: *Editor) void {
     editor.private.window.?.pageDown(editor.private.term.height());
+    editor.private.window.?.rebalanceScroll(editor.private.term.height() - WINDOW_PADDING);
 }
 fn gotoLineStart(editor: *Editor) void {
     editor.private.window.?.gotoLineStart();

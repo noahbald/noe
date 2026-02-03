@@ -2,6 +2,8 @@
 const builtin = @import("builtin");
 const std = @import("std");
 
+const iters = @import("../iter.zig");
+
 const arrayVec = @import("array-vec.zig");
 const Point = @import("point.zig");
 
@@ -10,6 +12,7 @@ const ArrayVec = arrayVec.ArrayVec;
 const Chunk = @This();
 
 const Bitmap = if (builtin.is_test) u16 else u128;
+// const Bitmap = u128;
 
 pub const MAX_BASE = @bitSizeOf(Bitmap);
 pub const MIN_BASE = MAX_BASE / 2;
@@ -123,6 +126,10 @@ pub fn summary(self: *const Chunk, _: Summary.Context) Summary {
 /// Returns the contents of the chunk as bytes.
 pub fn slice(self: *const Chunk) []const u8 {
     return self.text.slice();
+}
+
+pub fn iter(self: *const Chunk) iters.Iter(iters.SliceIter(u8)) {
+    return self.text.iter();
 }
 
 pub const Slice = struct {

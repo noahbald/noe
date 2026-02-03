@@ -5,11 +5,11 @@ const Text = @This();
 
 width: u16,
 height: u16,
-x: u16,
-y: u16,
+x: u16 = 0,
+y: u16 = 0,
 text: []const u8,
 
-pub fn draw(self: *Text, canvas: *Canvas) void {
+pub fn draw(self: *const Text, canvas: *Canvas) void {
     var i: usize = 0;
     y: for (self.y..self.y + self.height) |y| {
         x: for (self.x..self.x + self.width) |x| {
