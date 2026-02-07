@@ -22,10 +22,26 @@ const Private = struct {
     allocator: std.mem.Allocator,
     buffers: std.ArrayList(Buffer),
     window: ?*Buffer,
+    repeat: usize = 0,
+};
+
+const Mode = union(enum) {
+    Normal,
+    Insert,
+    Select,
+
+    pub fn format(self: Mode, writer: *std.Io.Writer) std.Io.Writer.Error!void {
+        _ = try switch (self) {
+            .Normal => writer.write("NORMAL"),
+            .Insert => writer.write("INSERT"),
+            .Select => writer.write("SELECT"),
+        };
+    }
 };
 
 redraw: bool = true,
 status: ?[]const u8 = null,
+mode: Mode = .Normal,
 private: Private,
 
 /// Draws empty text area as rows of `'~'`.
@@ -51,28 +67,45 @@ fn drawStatus(self: *const Editor, window: *const Buffer, c: *Canvas) void {
     }
 
     // LTR
-    const modeText = " NORMAL";
-    const mode = Text{ .text = modeText, .width = modeText.len, .height = 1 };
+    var buffer: [32]u8 = undefined;
+    var discarding: std.Io.Writer.Discarding = .init(&buffer);
+    discarding.writer.print(" {f}", .{self.mode}) catch {};
+    var width = discarding.fullCount();
+    const mode = Text{ .text = buffer[0..width], .width = @intCast(width), .height = 1 };
     mode.draw(c);
+    var x = @as(u16, @intCast(width)) + 1;
 
-    const path = Text{ .text = window.path, .width = @intCast(window.path.len), .height = 1, .x = mode.x + mode.width + 1 };
+    const path = Text{ .text = window.path, .width = @intCast(window.path.len), .height = 1, .x = x };
     path.draw(c);
+    x += @as(u16, @intCast(path.width)) + 1;
 
     // RTL
-    var linesText: [32]u8 = undefined;
+    buffer = undefined;
     const linesPercentage = @as(f32, @floatFromInt(window.scroll)) / @as(f32, @floatFromInt(window.buffer.lines()));
-    var discarding: std.Io.Writer.Discarding = .init(&linesText);
+    discarding = .init(&buffer);
     discarding.writer.print("{d}%", .{@round(100 * linesPercentage)}) catch {};
-    var width = discarding.fullCount();
-    const lines = Text{ .text = linesText[0..discarding.fullCount()], .width = @intCast(discarding.fullCount()), .height = 1, .x = c.width - @as(u16, @intCast(width)) - 1 };
+    width = discarding.fullCount();
+    x = c.width - @as(u16, @intCast(width)) - 1;
+    const lines = Text{ .text = buffer[0..width], .width = @intCast(width), .height = 1, .x = x };
     lines.draw(c);
 
-    var cursorText: [32]u8 = undefined;
-    discarding = .init(&cursorText);
+    buffer = undefined;
+    discarding = .init(&buffer);
     discarding.writer.print("{d}:{d}", .{ window.cursor.column, window.cursor.row }) catch {};
     width = discarding.fullCount();
-    const cursor = Text{ .text = cursorText[0..width], .width = @intCast(width), .height = 1, .x = lines.x - @as(u16, @intCast(width)) - 1 };
+    x -= @as(u16, @intCast(width)) + 1;
+    const cursor = Text{ .text = buffer[0..width], .width = @intCast(width), .height = 1, .x = x };
     cursor.draw(c);
+
+    if (self.private.repeat > 0) {
+        buffer = undefined;
+        discarding = .init(&buffer);
+        discarding.writer.print("{d}", .{self.private.repeat}) catch {};
+        width = discarding.fullCount();
+        x -= @as(u16, @intCast(width)) + 1;
+        const repeat = Text{ .text = buffer[0..width], .width = @intCast(width), .height = 1, .x = x };
+        repeat.draw(c);
+    }
 }
 
 /// Wraps the terminal with an editor and initial state.
@@ -104,9 +137,6 @@ pub fn refresh(self: *Editor) !void {
     }
     const width = self.private.term.width();
     const height = self.private.term.height();
-    var status: [256]u8 = undefined;
-    var statusD = std.Io.Writer.Discarding.init(&status);
-    self.status = status[0..statusD.fullCount()];
 
     var allocator = gpa.allocator();
     const buffer = try allocator.alloc(Texel, width * height);
@@ -145,5 +175,16 @@ pub fn refresh(self: *Editor) !void {
 
 /// For a given keypress, update the editor's state.
 pub fn processKeypress(self: *Editor, keypress: Keypress) !void {
-    try keypress.command().call(self);
+    if (self.mode == .Normal) {
+        // Record numbers to repeat
+        if (!keypress.control and keypress.code >= '0' and keypress.code <= '9') {
+            self.private.repeat = (self.private.repeat * 10) + (keypress.code - '0');
+            return;
+        }
+    }
+    const command = keypress.command();
+    for (0..@max(self.private.repeat, 1)) |_| {
+        try command.call(self);
+    }
+    self.private.repeat = 0;
 }
