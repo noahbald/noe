@@ -57,6 +57,68 @@ pub fn cursorUp(self: *Buffer) void {
 pub fn cursorDown(self: *Buffer) void {
     self.cursor.row = @min(self.buffer.lines(), self.cursor.row + 1);
 }
+fn MoveWordContext(comptime reverse: bool, comptime follow: bool, comptime long: bool) type {
+    return struct {
+        i: usize = 0,
+        sawNonWord: bool = false,
+        sawWord: bool = false,
+
+        pub const Error = error{Done};
+
+        pub fn visit(chunk: []const u8, this: *@This()) Error!void {
+            for (0..chunk.len) |i| {
+                const index = if (reverse) chunk.len - i - 1 else i;
+                const c = chunk[index];
+                const isInWord = if (long) c != '\n' and c != ' ' else std.ascii.isAlphanumeric(c);
+                if (isInWord) {
+                    if (!follow and this.sawNonWord) {
+                        this.i += i;
+                        return error.Done;
+                    }
+                    this.sawWord = true;
+                } else {
+                    if (follow and this.sawNonWord and this.sawWord) {
+                        this.i += i;
+                        return error.Done;
+                    }
+                    this.sawNonWord = true;
+                }
+            }
+            this.i += chunk.len;
+        }
+    };
+}
+fn moveWord(
+    self: *Buffer,
+    comptime reverse: bool,
+    comptime follow: bool,
+    comptime long: bool,
+) void {
+    const offset = self.buffer.pointToOffset(self.cursor);
+    const Context = MoveWordContext(reverse, follow, long);
+    var context: Context = .{};
+    if (reverse) {
+        const slice = self.buffer.slice(0, offset);
+        slice.visitReverse(*Context, Context.Error, Context.visit, &context) catch {};
+        self.cursor = self.buffer.offsetToPoint(offset - context.i);
+    } else {
+        const slice = self.buffer.slice(offset, self.buffer.len());
+        slice.visit(*Context, Context.Error, Context.visit, &context) catch {};
+        if (follow) {
+            context.i -= 1;
+        }
+        self.cursor = self.buffer.offsetToPoint(offset + context.i);
+    }
+}
+pub fn nextWordStart(self: *Buffer, comptime long: bool) void {
+    self.moveWord(false, false, long);
+}
+pub fn prevWordStart(self: *Buffer, comptime long: bool) void {
+    self.moveWord(true, true, long);
+}
+pub fn nextWordEnd(self: *Buffer, comptime long: bool) void {
+    self.moveWord(false, true, long);
+}
 pub fn pageUp(self: *Buffer, pageHeight: usize) void {
     self.cursor.row = self.cursor.row -| pageHeight;
     self.scroll = self.scroll -| pageHeight;

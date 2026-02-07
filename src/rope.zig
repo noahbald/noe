@@ -114,6 +114,19 @@ pub fn pointToOffset(self: *const Rope, point: Point) usize {
     return start.d2.inner + if (item) |chunk| chunk.asSlice().pointToOffset(overshoot) else 0;
 }
 
+pub fn offsetToPoint(self: *const Rope, offset: usize) Point {
+    const sum = self.summary();
+    if (offset > sum.len) {
+        return sum.lines;
+    }
+    const target: Point.USize = .{ .inner = offset };
+    const result = self.tree.find(sumTree.Dimensions(Point.USize, Point, null), Point.USize, void{}, &target, .left);
+    var start = result[0];
+    const item = result[2];
+    const overshoot = offset - start.d1.inner;
+    return start.d2.add(if (item) |chunk| &chunk.asSlice().offsetToPoint(overshoot) else &Point.zero(void{}));
+}
+
 /// Writes the contents of the rope to the writer, without flushing it.
 pub fn format(self: *const Rope, writer: *std.Io.Writer) std.Io.Writer.Error!void {
     const visitor: Tree.ThisVisitor(*std.Io.Writer, std.Io.Writer.Error) = .{
@@ -209,12 +222,32 @@ pub const Slice = struct {
         f: fn ([]const u8, C) if (E) |_E| _E!void else void,
         context: C,
     ) if (E) |_E| _E!void else void {
-        const Context = struct {
-            context: C,
-            trimStart: usize,
-            remainder: usize,
-        };
+        return self.visitDirection(false, C, E, f, context);
+    }
+    pub fn visitReverse(
+        self: *const Slice,
+        comptime C: type,
+        comptime E: ?type,
+        f: fn ([]const u8, C) if (E) |_E| _E!void else void,
+        context: C,
+    ) if (E) |_E| _E!void else void {
+        return self.visitDirection(true, C, E, f, context);
+    }
+    pub fn visitDirection(
+        self: *const Slice,
+        comptime reverse: bool,
+        comptime C: type,
+        comptime E: ?type,
+        f: fn ([]const u8, C) if (E) |_E| _E!void else void,
+        context: C,
+    ) if (E) |_E| _E!void else void {
         const Visit = struct {
+            const Context = struct {
+                context: C,
+                trimStart: usize,
+                remainder: usize,
+            };
+
             pub fn visitLeaf(leaf: *const Tree.Leaf, c: *Context) if (E) |_E| _E!void else void {
                 for (leaf.items.slice()) |chunk| {
                     var chunkSlice = chunk.slice();
@@ -241,16 +274,16 @@ pub const Slice = struct {
                 }
             }
         };
-        const visitor: Tree.ThisVisitor(*Context, E) = .{
+        const visitor: Tree.ThisVisitor(*Visit.Context, E) = .{
             .visitInternal = null,
             .visitLeaf = Visit.visitLeaf,
         };
-        var c: Context = .{
+        var c: Visit.Context = .{
             .context = context,
             .trimStart = self.trimStart,
             .remainder = self.len(),
         };
-        return visitor.visit(self.tree, &c);
+        return visitor.visitDirection(reverse, self.tree, &c);
     }
 
     /// Writes the contents of the rope to the writer, without flushing it.
@@ -374,4 +407,24 @@ test pointToOffset {
     const offset = rope.pointToOffset(.{ .column = 2, .row = 2 });
 
     try std.testing.expectEqual(28, offset);
+}
+
+test offsetToPoint {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}).init;
+    const alloc = gpa.allocator();
+    // input
+    //              0123456789012345678 901234 5678
+    //              0:0                  1:0    2:0
+    //                                            2:2
+    const source = "The quick brown fox\njumps\nover\nthe\nlazy\ndog.";
+    // -----------------------------------------^ row 2 (26 chars)
+    // -------------------------------------------^ row 2, column 2 (28 chars)
+    var reader = std.Io.Reader.fixed(source);
+
+    var rope: Rope = try .init(alloc);
+    try rope.read(&reader);
+    const point = rope.offsetToPoint(28);
+
+    try std.testing.expectEqual(2, point.column);
+    try std.testing.expectEqual(2, point.row);
 }

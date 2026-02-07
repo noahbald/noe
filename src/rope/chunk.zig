@@ -166,6 +166,14 @@ pub const Slice = struct {
         }
     }
 
+    pub fn offsetToPoint(self: *const Slice, offset: usize) Point {
+        const mask = (@as(Bitmap, 1) <<| offset) -% 1;
+        const row = @popCount(self.inner.newlines & mask);
+        const newline = @bitSizeOf(Bitmap) - @clz(self.inner.newlines & mask);
+        const column = offset - newline;
+        return .{ .row = row, .column = column };
+    }
+
     pub fn offsetRangeForRow(self: *const Slice, row: usize) struct { start: usize, end: usize } {
         var rowStart: usize = 0;
         if (row > 0) {

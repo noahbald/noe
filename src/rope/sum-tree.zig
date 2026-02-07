@@ -36,6 +36,13 @@ pub fn Visitor(comptime T: type, comptime C: type, comptime E: ?type) type {
 
         /// Initiates the visitor against the node and all it's descendants.
         pub fn visit(self: *const Self, node: *const SumTree(T), context: C) R {
+            return self.visitDirection(false, node, context);
+        }
+        pub fn visitReverse(self: *const Self, node: *const SumTree(T), context: C) R {
+            return self.visitDirection(true, node, context);
+        }
+
+        pub fn visitDirection(self: *const Self, comptime reverse: bool, node: *const SumTree(T), context: C) R {
             switch (node.*) {
                 .internal => |*internal| {
                     if (self.visitInternal) |f| {
@@ -45,7 +52,9 @@ pub fn Visitor(comptime T: type, comptime C: type, comptime E: ?type) type {
                             f.?(internal, context);
                         }
                     }
-                    for (internal.childTrees.slice()) |child| {
+                    const children = internal.childTrees.slice();
+                    for (0..children.len) |i| {
+                        const child = if (reverse) children[children.len - i - 1] else children[i];
                         if (E) |_| {
                             try self.visit(child, context);
                         } else {

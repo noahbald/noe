@@ -186,5 +186,9 @@ pub fn processKeypress(self: *Editor, keypress: Keypress) !void {
     for (0..@max(self.private.repeat, 1)) |_| {
         try command.call(self);
     }
+
+    // TODO: calls to rebalanceScroll should dynamically consider the window's rendered position
+    const WINDOW_PADDING = 2;
+    self.private.window.?.rebalanceScroll(self.private.term.height() - WINDOW_PADDING);
     self.private.repeat = 0;
 }

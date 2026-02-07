@@ -58,6 +58,14 @@ pub const USize = struct {
     pub fn addSummary(self: *USize, sum: *const USize.Summary, _: USize.Context) void {
         self.inner += sum.len;
     }
+
+    pub fn cmp(self: *const USize, other: *const USize) Ordering {
+        return Ordering.cmp(self.inner, other.inner);
+    }
+
+    pub fn cmpSeekTarget(self: *const USize, cursorLocation: anytype, _: USize.Context) Ordering {
+        return self.cmp(&cursorLocation.d1);
+    }
 };
 pub fn cmpSeekTarget(
     self: *const Point,
