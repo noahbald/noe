@@ -98,9 +98,15 @@ pub fn refresh(self: *Editor) !void {
     var gpa: std.heap.GeneralPurposeAllocator(.{}) = .init;
     defer _ = gpa.deinit();
 
-    try self.private.term.getWindowSize();
+    const winChanged = term.Term.winChanged;
+    if (winChanged) {
+        try self.private.term.getWindowSize();
+    }
     const width = self.private.term.width();
     const height = self.private.term.height();
+    var status: [256]u8 = undefined;
+    var statusD = std.Io.Writer.Discarding.init(&status);
+    self.status = status[0..statusD.fullCount()];
 
     var allocator = gpa.allocator();
     const buffer = try allocator.alloc(Texel, width * height);
@@ -109,6 +115,10 @@ pub fn refresh(self: *Editor) !void {
     defer allocator.free(buffer);
 
     // Draw to canvas then write to terminal.
+    if (winChanged) {
+        self.redraw = true;
+        try self.private.term.clear();
+    }
     if (self.redraw) {
         drawEmpty(&canv);
         if (self.private.window) |window| {

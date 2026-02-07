@@ -47,6 +47,8 @@ fn listenKill() void {
     std.os.windows.kernel32.SetConsoleCtrlHandler(&handleKill, 1);
 }
 
+pub const winChanged = true;
+
 pub fn init(buffer: []u8) !Term {
     const term: AbstractTerm = .init(buffer);
     var mode: Mode = .{};
@@ -101,6 +103,11 @@ pub fn height(self: *Term) u16 {
 /// Returns the column and row of the cursor.
 pub fn getCursorPosition(self: *Term) !Position {
     return self.super.getCursorPosition();
+}
+
+/// Clears the terminal window
+pub fn clear(self: *Term) std.Io.Writer.Error!void {
+    try self.super.clear();
 }
 
 /// Sends a signal to the terminal to update the cursor position.

@@ -46,6 +46,11 @@ pub fn height(_: *Term) u16 {
     @compileError("abstract method height called");
 }
 
+/// Clears the terminal window
+pub fn clear(self: *Term) std.Io.Writer.Error!void {
+    _ = try self.writer.interface.write("\x1b[2J");
+}
+
 /// Returns the column and row of the cursor.
 pub fn getCursorPosition(
     self: *Term,

@@ -55,6 +55,19 @@ fn listenKill() void {
     std.posix.sigaction(std.posix.SIG.TERM, &sa, null);
 }
 
+pub var winChanged: bool = false;
+fn handleWinChange(_: c_int) callconv(.c) void {
+    winChanged = true;
+}
+fn listenWinChange() void {
+    const sa: std.posix.Sigaction = .{
+        .handler = .{ .handler = &handleWinChange },
+        .mask = std.posix.sigemptyset(),
+        .flags = 0,
+    };
+    std.posix.sigaction(std.posix.SIG.WINCH, &sa, null);
+}
+
 /// Creates a terminal handler for stdin and stdout.
 pub fn init(buffer: []u8) !Term {
     const term: AbstractTerm = .init(buffer);
@@ -67,6 +80,7 @@ pub fn init(buffer: []u8) !Term {
         initial = termios;
         listenKill();
     }
+    listenWinChange();
 
     var self: Term = .{ .super = term, .termios = termios, .private = .{
         .size = undefined,
@@ -83,6 +97,7 @@ pub fn deinit(self: *Term) !void {
 
 /// Caches the result of a cursor position query.
 pub fn getWindowSize(self: *Term) Error!void {
+    defer winChanged = false;
     var size: std.posix.winsize = undefined;
     // Call IO Control Get Window Size
     posixError(std.posix.system.ioctl(self.super.stdout.handle, std.posix.T.IOCGWINSZ, @intFromPtr(&size))) catch |err| {
@@ -110,6 +125,11 @@ pub fn height(self: *Term) u16 {
 /// not the true window size.
 pub fn getCursorPosition(self: *Term) !Position {
     return self.super.getCursorPosition();
+}
+
+/// Clears the terminal window
+pub fn clear(self: *Term) std.Io.Writer.Error!void {
+    try self.super.clear();
 }
 
 /// Sends a signal to the terminal to update the cursor position.
