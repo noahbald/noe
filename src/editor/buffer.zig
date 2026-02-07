@@ -119,6 +119,55 @@ pub fn prevWordStart(self: *Buffer, comptime long: bool) void {
 pub fn nextWordEnd(self: *Buffer, comptime long: bool) void {
     self.moveWord(false, true, long);
 }
+fn FindCharContext(comptime reverse: bool) type {
+    return struct {
+        i: usize = 0,
+        char: u8,
+
+        pub const Error = error{Done};
+
+        pub fn visit(chunk: []const u8, this: *@This()) Error!void {
+            for (0..chunk.len) |i| {
+                const index = if (reverse) chunk.len - i - 1 else i;
+                const c = chunk[index];
+                if (c == this.char) {
+                    this.i += i;
+                    return error.Done;
+                }
+            }
+            this.i += chunk.len;
+        }
+    };
+}
+pub fn findChar(self: *Buffer, comptime reverse: bool, comptime till: bool, char: u8) void {
+    var offset = self.buffer.pointToOffset(self.cursor);
+    const Context = FindCharContext(reverse);
+    var context: Context = .{ .char = char };
+    if (reverse) {
+        if (till) {
+            offset -= 1;
+        }
+        const slice = self.buffer.slice(0, offset);
+        slice.visitReverse(*Context, Context.Error, Context.visit, &context) catch {
+            if (!till) {
+                context.i += 1;
+            }
+            self.cursor = self.buffer.offsetToPoint(offset - context.i);
+        };
+    } else {
+        offset += 1;
+        if (till) {
+            offset += 1;
+        }
+        const slice = self.buffer.slice(offset, self.buffer.len());
+        slice.visit(*Context, Context.Error, Context.visit, &context) catch {
+            if (till) {
+                context.i = context.i -| 1;
+            }
+            self.cursor = self.buffer.offsetToPoint(offset + context.i);
+        };
+    }
+}
 pub fn pageUp(self: *Buffer, pageHeight: usize) void {
     self.cursor.row = self.cursor.row -| pageHeight;
     self.scroll = self.scroll -| pageHeight;

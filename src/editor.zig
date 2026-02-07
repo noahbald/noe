@@ -29,12 +29,14 @@ const Mode = union(enum) {
     Normal,
     Insert,
     Select,
+    Pending: commands.Static,
 
     pub fn format(self: Mode, writer: *std.Io.Writer) std.Io.Writer.Error!void {
         _ = try switch (self) {
             .Normal => writer.write("NORMAL"),
             .Insert => writer.write("INSERT"),
             .Select => writer.write("SELECT"),
+            .Pending => |command| return writer.print("PENDING({f})", .{command}),
         };
     }
 };
@@ -170,12 +172,25 @@ pub fn refresh(self: *Editor) !void {
         try self.processKeypress(c);
         self.redraw = true;
         self.status = null;
+
+        // TODO: calls to rebalanceScroll should dynamically consider the window's rendered position
+        const WINDOW_PADDING = 2;
+        self.private.window.?.rebalanceScroll(self.private.term.height() - WINDOW_PADDING);
     }
 }
 
 /// For a given keypress, update the editor's state.
 pub fn processKeypress(self: *Editor, keypress: Keypress) !void {
-    if (self.mode == .Normal) {
+    switch (self.mode) {
+        .Pending => |command| {
+            self.mode = .Normal;
+            if (!keypress.control and Keypress.ctrl_key(keypress.code) != keypress.code) {
+                return command.settlePending(self, keypress.code);
+            }
+        },
+        else => {},
+    }
+    if (self.mode == .Normal or self.mode == .Select) {
         // Record numbers to repeat
         if (!keypress.control and keypress.code >= '0' and keypress.code <= '9') {
             self.private.repeat = (self.private.repeat * 10) + (keypress.code - '0');
@@ -186,9 +201,5 @@ pub fn processKeypress(self: *Editor, keypress: Keypress) !void {
     for (0..@max(self.private.repeat, 1)) |_| {
         try command.call(self);
     }
-
-    // TODO: calls to rebalanceScroll should dynamically consider the window's rendered position
-    const WINDOW_PADDING = 2;
-    self.private.window.?.rebalanceScroll(self.private.term.height() - WINDOW_PADDING);
     self.private.repeat = 0;
 }

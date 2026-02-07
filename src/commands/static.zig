@@ -18,6 +18,10 @@ pub const Static = union(enum) {
     NextLongWordStart,
     PrevLongWordStart,
     NextLongWordEnd,
+    FindTillNextChar,
+    FindNextChar,
+    FindTillPrevChar,
+    FindPrevChar,
     PageUp,
     PageDown,
     GotoLineStart,
@@ -27,6 +31,9 @@ pub const Static = union(enum) {
     Noop,
 
     pub fn call(self: Static, editor: *Editor) Error!void {
+        if (self.empend()) {
+            editor.mode = .{ .Pending = self };
+        }
         return switch (self) {
             .CursorLeft => cursorLeft(editor),
             .CursorDown => cursorDown(editor),
@@ -44,7 +51,50 @@ pub const Static = union(enum) {
             .GotoLineEnd => gotoLineEnd(editor),
             .Quit => quit(editor),
             .QuitForce => quitForce(editor),
-            .Noop => noop(editor),
+            else => noop(editor),
+        };
+    }
+
+    pub fn empend(self: Static) bool {
+        return switch (self) {
+            .FindTillNextChar, .FindNextChar, .FindTillPrevChar, .FindPrevChar => true,
+            else => false,
+        };
+    }
+
+    pub fn settlePending(self: Static, editor: *Editor, char: u8) Error!void {
+        return switch (self) {
+            .FindTillNextChar => findTillNextChar(editor, char),
+            .FindNextChar => findNextChar(editor, char),
+            .FindTillPrevChar => findTillPrevChar(editor, char),
+            .FindPrevChar => findPrevChar(editor, char),
+            else => noop(editor),
+        };
+    }
+
+    pub fn format(self: Static, writer: *std.Io.Writer) std.Io.Writer.Error!void {
+        _ = try switch (self) {
+            .CursorLeft => writer.write("CursorLeft"),
+            .CursorDown => writer.write("CursorDown"),
+            .CursorUp => writer.write("CursorUp"),
+            .CursorRight => writer.write("CursorRight"),
+            .NextWordStart => writer.write("NextWordStart"),
+            .PrevWordStart => writer.write("PrevWordStart"),
+            .NextWordEnd => writer.write("NextWordEnd"),
+            .NextLongWordStart => writer.write("NextLongWordStart"),
+            .PrevLongWordStart => writer.write("PrevLongWordStart"),
+            .NextLongWordEnd => writer.write("NextLongWordEnd"),
+            .FindTillNextChar => writer.write("FindTillNextChar"),
+            .FindNextChar => writer.write("FindNextChar"),
+            .FindTillPrevChar => writer.write("FindTillPrevChar"),
+            .FindPrevChar => writer.write("FindPrevChar"),
+            .PageUp => writer.write("PageUp"),
+            .PageDown => writer.write("PageDown"),
+            .GotoLineStart => writer.write("GotoLineStart"),
+            .GotoLineEnd => writer.write("GotoLineEnd"),
+            .Quit => writer.write("Quit"),
+            .QuitForce => writer.write("QuitForce"),
+            .Noop => writer.write("Noop"),
         };
     }
 };
@@ -78,6 +128,18 @@ fn prevLongWordStart(editor: *Editor) void {
 }
 fn nextLongWordEnd(editor: *Editor) void {
     editor.private.window.?.nextWordEnd(true);
+}
+fn findTillNextChar(editor: *Editor, char: u8) void {
+    editor.private.window.?.findChar(false, true, char);
+}
+fn findNextChar(editor: *Editor, char: u8) void {
+    editor.private.window.?.findChar(false, false, char);
+}
+fn findTillPrevChar(editor: *Editor, char: u8) void {
+    editor.private.window.?.findChar(true, true, char);
+}
+fn findPrevChar(editor: *Editor, char: u8) void {
+    editor.private.window.?.findChar(true, false, char);
 }
 fn pageUp(editor: *Editor) void {
     editor.private.window.?.pageUp(editor.private.term.height());
