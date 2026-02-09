@@ -249,22 +249,46 @@ pub const Slice = struct {
             };
 
             pub fn visitLeaf(leaf: *const Tree.Leaf, c: *Context) if (E) |_E| _E!void else void {
-                for (leaf.items.slice()) |chunk| {
-                    var chunkSlice = chunk.slice();
+                // Start by finding chunk bounds
+                var chunks = leaf.items.slice();
+                var firstChunk: usize = 0;
+                var lastChunk: usize = chunks.len - 1;
+                var trimStart: usize = c.trimStart;
+                var trimEnd: usize = c.remainder;
+                for (chunks, 0..) |chunk, i| {
+                    const chunkSlice = chunk.slice();
                     if (c.trimStart > chunkSlice.len) {
                         c.trimStart -= chunkSlice.len;
                         continue;
                     } else if (c.trimStart > 0) {
-                        chunkSlice = chunkSlice[c.trimStart..];
+                        firstChunk = i;
+                        trimStart = c.trimStart;
                         c.trimStart = 0;
                     }
                     if (c.remainder == 0) {
+                        lastChunk = i;
+                        trimEnd = chunkSlice.len;
                         break;
                     } else if (c.remainder < chunkSlice.len) {
-                        chunkSlice = chunkSlice[0..c.remainder];
+                        lastChunk = i;
+                        trimEnd = c.remainder;
                         c.remainder = 0;
+                        break;
                     } else {
                         c.remainder -= chunkSlice.len;
+                    }
+                }
+                // Then iterate through chunk bounds in given order
+                chunks = chunks[firstChunk .. lastChunk + 1];
+                for (0..chunks.len) |i| {
+                    const index = if (reverse) chunks.len - i - 1 else i;
+                    const chunk = chunks[index];
+                    var chunkSlice = chunk.slice();
+                    if (index == 0) {
+                        chunkSlice = chunkSlice[trimStart..];
+                    }
+                    if (index == chunks.len - 1) {
+                        chunkSlice = chunkSlice[0..trimEnd];
                     }
                     if (E) |_| {
                         try f(chunkSlice, c.context);

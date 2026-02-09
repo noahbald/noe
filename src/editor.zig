@@ -46,6 +46,18 @@ status: ?[]const u8 = null,
 mode: Mode = .Normal,
 private: Private,
 
+var debugStatus: [512]u8 = undefined;
+var debugStatusLen: usize = 0;
+pub fn debug(
+    comptime format: []const u8,
+    args: anytype,
+) void {
+    var stream = std.Io.Writer.Discarding.init(&debugStatus);
+    nosuspend stream.writer.print("debug: " ++ format, args) catch return;
+    stream.writer.flush() catch return;
+    debugStatusLen = stream.fullCount();
+}
+
 /// Draws empty text area as rows of `'~'`.
 fn drawEmpty(c: *Canvas) void {
     var text = Char{ .width = 1, .height = c.height, .x = 0, .y = 0, .char = '~' };
@@ -64,6 +76,10 @@ fn drawSplash(c: *Canvas) void {
 fn drawStatus(self: *const Editor, window: *const Buffer, c: *Canvas) void {
     if (self.status) |status| {
         const text = Text{ .text = status, .width = c.width, .height = 1 };
+        text.draw(c);
+        return;
+    } else if (debugStatusLen > 0) {
+        const text = Text{ .text = debugStatus[0..debugStatusLen], .width = c.width, .height = 1 };
         text.draw(c);
         return;
     }
