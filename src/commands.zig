@@ -20,6 +20,7 @@ pub fn char(c: u8) Static {
         .FindNextChar => .FindNextChar,
         .FindTillPrevChar => .FindTillPrevChar,
         .FindPrevChar => .FindPrevChar,
+        .GotoLine => .{ .GotoLine = 0 },
         .Quit => .Quit,
         .PageUp => .PageUp,
         .PageDown => .PageDown,

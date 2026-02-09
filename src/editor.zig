@@ -200,7 +200,7 @@ pub fn processKeypress(self: *Editor, keypress: Keypress) !void {
     switch (self.mode) {
         .Pending => |command| {
             self.mode = .Normal;
-            if (!keypress.control and Keypress.ctrl_key(keypress.code) != keypress.code) {
+            if (keypress.is_text()) {
                 return command.settlePending(self, keypress.code);
             }
         },

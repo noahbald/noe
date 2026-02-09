@@ -53,3 +53,15 @@ pub fn command(self: Keypress) commands.Static {
 pub fn ctrl_key(c: u8) u8 {
     return c & 0x1f;
 }
+
+pub fn is_ctrl_key(self: *const Keypress) bool {
+    return ctrl_key(self.code) == self.code;
+}
+
+pub fn is_text_control(self: *const Keypress) bool {
+    return self.code >= 0x8 and self.code <= 0xd;
+}
+
+pub fn is_text(self: *const Keypress) bool {
+    return !self.control and (!self.is_ctrl_key() or self.is_text_control());
+}

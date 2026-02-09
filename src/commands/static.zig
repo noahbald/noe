@@ -22,6 +22,7 @@ pub const Static = union(enum) {
     FindNextChar,
     FindTillPrevChar,
     FindPrevChar,
+    GotoLine: usize,
     PageUp,
     PageDown,
     GotoLineStart,
@@ -57,7 +58,7 @@ pub const Static = union(enum) {
 
     pub fn empend(self: Static) bool {
         return switch (self) {
-            .FindTillNextChar, .FindNextChar, .FindTillPrevChar, .FindPrevChar => true,
+            .FindTillNextChar, .FindNextChar, .FindTillPrevChar, .FindPrevChar, .GotoLine => true,
             else => false,
         };
     }
@@ -68,6 +69,13 @@ pub const Static = union(enum) {
             .FindNextChar => findNextChar(editor, char),
             .FindTillPrevChar => findTillPrevChar(editor, char),
             .FindPrevChar => findPrevChar(editor, char),
+            .GotoLine => |line| {
+                if (char == '\r' or char == '\n') {
+                    gotoLine(editor, line -| 1);
+                } else if (std.ascii.isDigit(char)) {
+                    editor.mode = .{ .Pending = .{ .GotoLine = (line * 10) + (char - '0') } };
+                }
+            },
             else => noop(editor),
         };
     }
@@ -88,6 +96,7 @@ pub const Static = union(enum) {
             .FindNextChar => writer.write("FindNextChar"),
             .FindTillPrevChar => writer.write("FindTillPrevChar"),
             .FindPrevChar => writer.write("FindPrevChar"),
+            .GotoLine => |line| return writer.print("GotoLine({d})", .{line}),
             .PageUp => writer.write("PageUp"),
             .PageDown => writer.write("PageDown"),
             .GotoLineStart => writer.write("GotoLineStart"),
@@ -140,6 +149,9 @@ fn findTillPrevChar(editor: *Editor, char: u8) void {
 }
 fn findPrevChar(editor: *Editor, char: u8) void {
     editor.private.window.?.findChar(true, false, char);
+}
+fn gotoLine(editor: *Editor, line: usize) void {
+    editor.private.window.?.gotoLine(line);
 }
 fn pageUp(editor: *Editor) void {
     editor.private.window.?.pageUp(editor.private.term.height());

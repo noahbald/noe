@@ -168,6 +168,10 @@ pub fn findChar(self: *Buffer, comptime reverse: bool, comptime till: bool, char
         };
     }
 }
+pub fn gotoLine(self: *Buffer, line: usize) void {
+    self.cursor.row = line;
+    self.cursor.column = 0;
+}
 pub fn pageUp(self: *Buffer, pageHeight: usize) void {
     self.cursor.row = self.cursor.row -| pageHeight;
     self.scroll = self.scroll -| pageHeight;

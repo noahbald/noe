@@ -8,6 +8,7 @@ const ctrl_key = Keypress.ctrl_key;
 
 /// The set of assigned keyboard characters.
 pub const Char = enum(u8) {
+    // Movement
     CursorLeft = 'h',
     CursorDown = 'j',
     CursorUp = 'k',
@@ -22,6 +23,7 @@ pub const Char = enum(u8) {
     FindNextChar = 'f',
     FindTillPrevChar = 'T',
     FindPrevChar = 'F',
+    GotoLine = 'G',
     Quit = ctrl_key('q'),
     PageUp = ctrl_key('u'),
     PageDown = ctrl_key('d'),
