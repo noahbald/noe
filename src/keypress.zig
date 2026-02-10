@@ -65,3 +65,7 @@ pub fn is_text_control(self: *const Keypress) bool {
 pub fn is_text(self: *const Keypress) bool {
     return !self.control and (!self.is_ctrl_key() or self.is_text_control());
 }
+
+pub fn is_bs(self: *const Keypress) bool {
+    return !self.control and self.code == std.ascii.control_code.bs;
+}

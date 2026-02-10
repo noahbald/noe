@@ -197,6 +197,7 @@ pub fn refresh(self: *Editor) !void {
 
 /// For a given keypress, update the editor's state.
 pub fn processKeypress(self: *Editor, keypress: Keypress) !void {
+    // Use mode behaviour
     switch (self.mode) {
         .Pending => |command| {
             self.mode = .Normal;
@@ -205,14 +206,16 @@ pub fn processKeypress(self: *Editor, keypress: Keypress) !void {
             }
         },
         .Insert => {
-            if (keypress.is_text()) {
-                debug("TODO: Insert text", .{});
+            if (keypress.is_text() or keypress.is_bs()) {
+                try self.private.window.?.insert(keypress.code);
                 return;
             }
         },
         else => {},
     }
-    // Fallback to NORMAL/SELECT behaviour
+
+    // Otherwise, fallback to NORMAL/SELECT behaviour.
+    try self.private.window.?.flush();
     if (self.mode == .Normal or self.mode == .Select) {
         // Record numbers to repeat
         if (!keypress.control and keypress.code >= '0' and keypress.code <= '9') {

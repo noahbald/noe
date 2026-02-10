@@ -110,6 +110,19 @@ pub fn insert(self: *Rope, offset: usize, text: []const u8) Error!void {
     }
 }
 
+pub fn remove(self: *Rope, offset: usize) Error!void {
+    if (offset >= self.len()) return;
+
+    var right = try self.split(offset);
+    if (right) |*r| {
+        defer r.deinit();
+        var rest = try r.split(1);
+        if (rest) |*r2| {
+            try self.join(r2);
+        }
+    }
+}
+
 /// Splits the rope by mutation at the given offset, popping and returning the remaining rope.
 pub fn split(self: *Rope, offset: usize) Error!?Rope {
     var right: Rope = .{ .tree = undefined, .gpa = self.gpa };
@@ -772,6 +785,31 @@ test insert {
 
     try writer.print("{f}", .{rope});
     try std.testing.expectEqualStrings("The quick cool brown fox\njumps\nover\nthe\nlazy\ndog.", &buffer);
+    rope.deinit();
+    try std.testing.expectEqual(std.heap.Check.ok, gpa.deinit());
+}
+
+test remove {
+    // Arrange
+    var gpa = std.heap.GeneralPurposeAllocator(.{}).init;
+    const alloc = gpa.allocator();
+    // input
+    //              01234567890123456789
+    const source = "The quick brown fox\njumps\nover\nthe\nlazy\ndog.";
+    var reader = std.Io.Reader.fixed(source);
+    // output
+    var buffer: [43]u8 = undefined;
+    var writer = std.Io.Writer.fixed(&buffer);
+    var rope: Rope = try .init(alloc);
+    try rope.read(&reader);
+
+    // Act
+    try rope.remove(19);
+
+    // Assert
+    try writer.print("{f}", .{rope});
+    try std.testing.expect(source.len > Chunk.MAX_BASE);
+    try std.testing.expectEqualStrings("The quick brown foxjumps\nover\nthe\nlazy\ndog.", &buffer);
     rope.deinit();
     try std.testing.expectEqual(std.heap.Check.ok, gpa.deinit());
 }

@@ -2,7 +2,10 @@ const std = @import("std");
 
 const Canvas = @import("../canvas.zig");
 const LineEdit = @import("../canvas/line-edit.zig");
+const Keypress = @import("../keypress.zig");
 const Rope = @import("../rope.zig");
+const arrayVec = @import("../rope/array-vec.zig");
+const Chunk = @import("../rope/chunk.zig");
 const Point = @import("../rope/point.zig");
 
 const Buffer = @This();
@@ -15,11 +18,36 @@ buffer: Rope,
 path: []u8,
 /// The number of lines scrolled
 scroll: usize = 0,
+/// An intermediate chunk being edited at the cursor
+insertingChunk: arrayVec.ArrayVec(u8, Chunk.MAX_BASE) = .init,
 /// The position of the cursor in the buffer's contents
 cursor: Point = .init(0, 0),
 
 const SCROLL_THRESHOLD = 2;
 
+pub fn flush(self: *Buffer) !void {
+    if (self.insertingChunk.len == 0) return;
+    try self.buffer.insert(self.buffer.pointToOffset(self.cursor), self.insertingChunk.slice());
+    const chunk = try Chunk.init(self.insertingChunk.slice());
+    self.cursor = self.cursor.add(&chunk.summary(void{}).lines);
+    self.insertingChunk.len = 0;
+}
+pub fn insert(self: *Buffer, char: u8) !void {
+    if (char == std.ascii.control_code.bs or char == 0x7f) {
+        if (self.insertingChunk.len > 0) {
+            _ = self.insertingChunk.pop();
+        } else if (self.buffer.len() > 0) {
+            const offset = self.buffer.pointToOffset(self.cursor);
+            try self.buffer.remove(offset);
+            self.cursor = self.buffer.offsetToPoint(offset - 1);
+        }
+        return;
+    }
+    if (self.insertingChunk.isFull()) {
+        try self.flush();
+    }
+    try self.insertingChunk.push(char);
+}
 pub fn rebalanceScroll(self: *Buffer, pageHeight: u16) void {
     const cursor = self.cursor.row;
     const top = self.scroll + SCROLL_THRESHOLD;

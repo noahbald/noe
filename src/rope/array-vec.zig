@@ -18,9 +18,13 @@ pub fn ArrayVec(comptime T: type, comptime capacity: usize) type {
 
         pub const init: Self = .{};
 
+        pub inline fn isFull(self: *const Self) bool {
+            return self.len >= capacity;
+        }
+
         /// Pushes the item to the end of the array and increments the length.
         pub fn push(self: *Self, item: T) Error!void {
-            if (self.len >= capacity) return Error.OutOfRange;
+            if (self.isFull()) return Error.OutOfRange;
             self.private.buffer[self.len] = item;
             self.len += 1;
         }
@@ -28,7 +32,7 @@ pub fn ArrayVec(comptime T: type, comptime capacity: usize) type {
         /// Inserts the item at the given index, moving all the following
         /// along the vec to make space.
         pub fn insert(self: *Self, index: usize, item: T) Error!void {
-            if (self.len >= capacity) return Error.OutOfRange;
+            if (self.isFull()) return Error.OutOfRange;
             @memcpy(
                 self.private.buffer[index + 1 .. self.len + 1],
                 self.private.buffer[index..self.len],
@@ -62,7 +66,7 @@ pub fn ArrayVec(comptime T: type, comptime capacity: usize) type {
 
         /// Returns a copy of the element at the given index.
         pub fn get(self: *const Self, index: usize) ?T {
-            if (index >= self.len) return null;
+            if (self.isFull()) return null;
             return self.private.buffer[index];
         }
 
