@@ -204,8 +204,15 @@ pub fn processKeypress(self: *Editor, keypress: Keypress) !void {
                 return command.settlePending(self, keypress.code);
             }
         },
+        .Insert => {
+            if (keypress.is_text()) {
+                debug("TODO: Insert text", .{});
+                return;
+            }
+        },
         else => {},
     }
+    // Fallback to NORMAL/SELECT behaviour
     if (self.mode == .Normal or self.mode == .Select) {
         // Record numbers to repeat
         if (!keypress.control and keypress.code >= '0' and keypress.code <= '9') {

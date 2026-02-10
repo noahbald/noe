@@ -24,6 +24,8 @@ pub fn char(c: u8) Static {
         .Quit => .Quit,
         .PageUp => .PageUp,
         .PageDown => .PageDown,
+        .InsertMode => .InsertMode,
+        .NormalMode => .NormalMode,
         _ => .Noop,
     };
 }

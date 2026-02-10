@@ -27,6 +27,10 @@ pub const Char = enum(u8) {
     Quit = ctrl_key('q'),
     PageUp = ctrl_key('u'),
     PageDown = ctrl_key('d'),
+
+    // Changes
+    InsertMode = 'i',
+    NormalMode = std.ascii.control_code.esc,
     _,
 };
 

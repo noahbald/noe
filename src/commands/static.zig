@@ -27,6 +27,8 @@ pub const Static = union(enum) {
     PageDown,
     GotoLineStart,
     GotoLineEnd,
+    InsertMode,
+    NormalMode,
     Quit,
     QuitForce,
     Noop,
@@ -50,6 +52,8 @@ pub const Static = union(enum) {
             .PageDown => pageDown(editor),
             .GotoLineStart => gotoLineStart(editor),
             .GotoLineEnd => gotoLineEnd(editor),
+            .InsertMode => insertMode(editor),
+            .NormalMode => normalMode(editor),
             .Quit => quit(editor),
             .QuitForce => quitForce(editor),
             else => noop(editor),
@@ -101,6 +105,8 @@ pub const Static = union(enum) {
             .PageDown => writer.write("PageDown"),
             .GotoLineStart => writer.write("GotoLineStart"),
             .GotoLineEnd => writer.write("GotoLineEnd"),
+            .InsertMode => writer.write("InsertMode"),
+            .NormalMode => writer.write("NormalMode"),
             .Quit => writer.write("Quit"),
             .QuitForce => writer.write("QuitForce"),
             .Noop => writer.write("Noop"),
@@ -164,6 +170,12 @@ fn gotoLineStart(editor: *Editor) void {
 }
 fn gotoLineEnd(editor: *Editor) void {
     editor.private.window.?.gotoLineEnd();
+}
+fn insertMode(editor: *Editor) void {
+    editor.mode = .Insert;
+}
+fn normalMode(editor: *Editor) void {
+    editor.mode = .Normal;
 }
 fn quit(editor: *Editor) Error!void {
     // TODO: Check unsaved files

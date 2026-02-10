@@ -25,6 +25,17 @@ pub fn ArrayVec(comptime T: type, comptime capacity: usize) type {
             self.len += 1;
         }
 
+        /// Inserts the item at the given index, moving all the following
+        /// along the vec to make space.
+        pub fn insert(self: *Self, index: usize, item: T) Error!void {
+            if (self.len >= capacity) return Error.OutOfRange;
+            @memcpy(
+                self.private.buffer[index + 1 .. self.len + 1],
+                self.private.buffer[index..self.len],
+            );
+            self.private.buffer[index] = item;
+        }
+
         /// Pushes the items to the end of the array and updates the length.
         pub fn extend(self: *Self, items: []const T) Error!void {
             if (self.len + items.len > capacity) return Error.OutOfRange;
