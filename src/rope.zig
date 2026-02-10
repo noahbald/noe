@@ -88,6 +88,254 @@ pub fn push(self: *Rope, text: []const u8) Error!void {
     }
 }
 
+/// Mutates the rope by inserting the text at the given offset
+pub fn insert(self: *Rope, offset: usize, text: []const u8) Error!void {
+    if (offset >= self.len()) {
+        return self.push(text);
+    } else if (offset == 0) {
+        var left = try init(self.gpa);
+        errdefer left.deinit();
+        try left.push(text);
+        std.mem.swap(Tree, self.tree, left.tree); // left is now right
+        return;
+    }
+
+    var right = try self.split(offset);
+    var middle = try init(self.gpa);
+    try middle.push(text);
+
+    try self.join(&middle);
+    if (right) |*r| {
+        try self.join(r);
+    }
+}
+
+/// Splits the rope by mutation at the given offset, popping and returning the remaining rope.
+pub fn split(self: *Rope, offset: usize) Error!?Rope {
+    var right: Rope = .{ .tree = undefined, .gpa = self.gpa };
+    right.tree = try self.splitTree(offset, 0) orelse return null;
+    return right;
+}
+fn splitTree(self: *Rope, offset: usize, baseOffset: usize) Error!?*Tree {
+    switch (self.tree.*) {
+        .internal => |*internal| {
+            // Find split boundary
+            var currentOffset = baseOffset;
+            var splitIndex: ?usize = null;
+
+            for (internal.childSummaries.slice(), 0..) |sum, i| {
+                if (currentOffset + sum.len > offset) {
+                    splitIndex = i;
+                    break;
+                }
+                currentOffset += sum.len;
+            }
+            const i = splitIndex orelse return null;
+
+            // Split boundary point
+            var middle: Rope = .{ .tree = undefined, .gpa = self.gpa };
+            middle.tree = internal.childTrees.slice()[i];
+            const rightStart = try middle.splitTree(offset, currentOffset);
+            const hasRemainingChildren = i + 1 < internal.childTrees.slice().len;
+            const hasRightContent = rightStart != null or hasRemainingChildren;
+
+            if (hasRightContent) {
+                // Build right tree
+                var right = try self.gpa.create(Tree);
+                errdefer right.deinit(self.gpa);
+                right.* = .{ .internal = .{
+                    .height = internal.height,
+                    .summary = Chunk.Summary.zero(void{}),
+                    .childSummaries = .init,
+                    .childTrees = .init,
+                } };
+
+                if (rightStart) |tree| {
+                    try right.internal.childTrees.push(tree);
+                    const sum = tree.summary();
+                    try right.internal.childSummaries.push(sum);
+                    right.internal.summary = sum;
+                }
+                for (internal.childTrees.slice()[i + 1 ..], internal.childSummaries.slice()[i + 1 ..]) |child, sum| {
+                    try right.internal.childTrees.push(child);
+                    try right.internal.childSummaries.push(sum);
+                    right.internal.summary = right.internal.summary.add(&sum, void{});
+                }
+
+                // Slice left tree
+                internal.childTrees.len = i + 1;
+                internal.childSummaries.len = i + 1;
+                internal.summary = Chunk.Summary.zero(void{});
+                for (internal.childSummaries.slice()) |sum| {
+                    internal.summary = internal.summary.add(&sum, void{});
+                }
+                return right;
+            } else {
+                return null;
+            }
+        },
+        .leaf => |*leaf| {
+            // Find split boundary
+            var currentOffset = baseOffset;
+            var splitIndex: ?usize = null;
+            var splitText: usize = 0;
+
+            for (leaf.items.slice(), 0..) |chunk, i| {
+                if (currentOffset + chunk.text.len > offset) {
+                    splitIndex = i;
+                    splitText = offset - currentOffset;
+                    break;
+                }
+                currentOffset += chunk.text.len;
+            }
+            const i = splitIndex orelse return null;
+
+            // Split boundary point
+            var middle = leaf.items.slice()[i];
+            const rightStart: Chunk = try .init(middle.slice()[splitText..]);
+
+            // Build right tree
+            var right = try self.gpa.create(Tree);
+            errdefer right.deinit(self.gpa);
+            right.* = .{ .leaf = .{
+                .summary = rightStart.summary(void{}),
+                .items = .init,
+                .itemSummaries = .init,
+            } };
+            try right.leaf.items.push(rightStart);
+            try right.leaf.itemSummaries.push(rightStart.summary(void{}));
+            for (leaf.items.slice()[i + 1 ..]) |item| {
+                try right.leaf.items.push(item);
+                const sum = item.summary(void{});
+                try right.leaf.itemSummaries.push(sum);
+                right.leaf.summary = right.leaf.summary.add(&sum, void{});
+            }
+
+            // Slice left tree
+            leaf.items.sliceMut()[i] = try .init(middle.text.slice()[0..splitText]);
+            leaf.items.len = i + 1;
+            leaf.summary = Chunk.Summary.zero(void{});
+            for (leaf.items.slice()) |item| {
+                leaf.summary = leaf.summary.add(&item.summary(void{}), void{});
+            }
+            return right;
+        },
+    }
+}
+
+/// Joins another rope to the end of this rope.
+pub fn join(self: *Rope, other: *Rope) Error!void {
+    if (other.len() == 0) {
+        other.deinit();
+        return;
+    }
+    if (self.len() == 0) {
+        std.mem.swap(Tree, self.tree, other.tree);
+        other.deinit();
+        return;
+    }
+    try self.joinTree(other);
+}
+fn joinTree(self: *Rope, other: *Rope) Error!void {
+    const leftHeight = self.tree.height();
+    const rightHeight = other.tree.height();
+    if (leftHeight == rightHeight) {
+        const parent = try self.gpa.create(Tree);
+        errdefer parent.deinit(self.gpa);
+        parent.* = .{ .internal = .{
+            .height = leftHeight + 1,
+            .summary = self.tree.summary().add(&other.tree.summary(), void{}),
+            .childSummaries = .init,
+            .childTrees = .init,
+        } };
+
+        try parent.internal.childTrees.push(self.tree);
+        try parent.internal.childTrees.push(other.tree);
+        try parent.internal.childSummaries.push(self.summary());
+        try parent.internal.childSummaries.push(other.summary());
+        self.tree = parent;
+    } else if (leftHeight > rightHeight) {
+        try self.joinTreeEdge(false, other);
+    } else {
+        std.mem.swap(Tree, self.tree, other.tree);
+        try self.joinTreeEdge(true, other);
+    }
+    other.tree = undefined;
+}
+fn joinTreeEdge(self: *Rope, comptime left: bool, other: *Rope) Error!void {
+    switch (self.tree.*) {
+        .internal => |*internal| {
+            const i = if (left) 0 else internal.childTrees.len - 1;
+            const child = internal.childTrees.slice()[i];
+
+            const childHeight = child.height();
+            const otherHeight = other.tree.height();
+            if (childHeight > otherHeight) {
+                var childRope: Rope = .{ .tree = child, .gpa = self.gpa };
+                try childRope.joinTreeEdge(left, other);
+
+                internal.childSummaries.sliceMut()[i] = child.summary();
+                internal.summary = Chunk.Summary.zero(void{});
+                for (internal.childSummaries.slice()) |sum| {
+                    internal.summary = internal.summary.add(&sum, void{});
+                }
+            } else if (childHeight == otherHeight) {
+                if (left) {
+                    try internal.childTrees.insert(0, other.tree);
+                    try internal.childSummaries.insert(0, other.summary());
+                } else {
+                    try internal.childTrees.push(other.tree);
+                    try internal.childSummaries.push(other.summary());
+                }
+                internal.summary = internal.summary.add(&other.summary(), void{});
+            } else {
+                const parent = try self.gpa.create(Tree);
+                errdefer parent.deinit(self.gpa);
+                parent.* = .{ .internal = .{
+                    .height = self.tree.height() + 1,
+                    .summary = other.summary().add(&child.summary(), void{}),
+                    .childSummaries = .init,
+                    .childTrees = .init,
+                } };
+
+                const first = if (left) other.tree else child;
+                const second = if (left) child else other.tree;
+                try parent.internal.childTrees.push(first);
+                try parent.internal.childTrees.push(second);
+                try parent.internal.childSummaries.push(first.summary());
+                try parent.internal.childSummaries.push(second.summary());
+
+                internal.childTrees.sliceMut()[i] = parent;
+                internal.childSummaries.sliceMut()[i] = parent.summary();
+                internal.summary = Chunk.Summary.zero(void{});
+                for (internal.childSummaries.slice()) |sum| {
+                    internal.summary = internal.summary.add(&sum, void{});
+                }
+            }
+        },
+        .leaf => {
+            const parent = try self.gpa.create(Tree);
+            errdefer parent.deinit(self.gpa);
+
+            parent.* = .{ .internal = .{
+                .height = @max(self.tree.height(), other.tree.height()) + 1,
+                .summary = self.tree.summary().add(&other.tree.summary(), void{}),
+                .childSummaries = .init,
+                .childTrees = .init,
+            } };
+
+            const first = if (left) other.tree else self.tree;
+            const second = if (left) self.tree else other.tree;
+            try parent.internal.childTrees.push(first);
+            try parent.internal.childTrees.push(second);
+            try parent.internal.childSummaries.push(first.summary());
+            try parent.internal.childSummaries.push(second.summary());
+
+            self.tree = parent;
+        },
+    }
+}
+
 /// Returns the summary of the rope's contents.
 pub fn summary(self: *const Rope) Chunk.Summary {
     return self.tree.summary();
@@ -339,7 +587,7 @@ test read {
     try std.testing.expect(source.len > Chunk.MAX_BASE);
     try std.testing.expectEqualStrings(source, &buffer);
     rope.deinit();
-    try std.testing.expectEqual(gpa.deinit(), std.heap.Check.ok);
+    try std.testing.expectEqual(std.heap.Check.ok, gpa.deinit());
 }
 
 test slice {
@@ -363,7 +611,7 @@ test slice {
     try writer.print("{f}", .{ropeSlice});
     try std.testing.expectEqualStrings("brown fox\njumps", &buffer);
     rope.deinit();
-    try std.testing.expectEqual(gpa.deinit(), std.heap.Check.ok);
+    try std.testing.expectEqual(std.heap.Check.ok, gpa.deinit());
 }
 
 test sliceRows {
@@ -387,7 +635,7 @@ test sliceRows {
     try std.testing.expect(source.len > Chunk.MAX_BASE);
     try std.testing.expectEqualStrings("jumps\nover", &buffer);
     rope.deinit();
-    try std.testing.expectEqual(gpa.deinit(), std.heap.Check.ok);
+    try std.testing.expectEqual(std.heap.Check.ok, gpa.deinit());
 }
 
 test sliceLine {
@@ -411,7 +659,7 @@ test sliceLine {
     try writer.print("{f}", .{ropeSlice});
     try std.testing.expectEqualStrings("jumps", &buffer);
     rope.deinit();
-    try std.testing.expectEqual(gpa.deinit(), std.heap.Check.ok);
+    try std.testing.expectEqual(std.heap.Check.ok, gpa.deinit());
 }
 
 test pointToOffset {
@@ -444,11 +692,86 @@ test offsetToPoint {
     // -----------------------------------------^ row 2 (26 chars)
     // -------------------------------------------^ row 2, column 2 (28 chars)
     var reader = std.Io.Reader.fixed(source);
-
     var rope: Rope = try .init(alloc);
     try rope.read(&reader);
+
     const point = rope.offsetToPoint(28);
 
     try std.testing.expectEqual(2, point.column);
     try std.testing.expectEqual(2, point.row);
+}
+
+test split {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}).init;
+    const alloc = gpa.allocator();
+    // input
+    //              0123456789012345678 901234 5
+    const source = "The quick brown fox\njumps\nover\nthe\nlazy\ndog.";
+    var reader = std.Io.Reader.fixed(source);
+    // output
+    var bufferLeft: [26]u8 = undefined;
+    var writerLeft = std.Io.Writer.fixed(&bufferLeft);
+    var bufferRight: [18]u8 = undefined;
+    var writerRight = std.Io.Writer.fixed(&bufferRight);
+    var rope: Rope = try .init(alloc);
+    try rope.read(&reader);
+
+    // Act
+    var right = (try rope.split(26)).?;
+
+    // Assert
+    try writerLeft.print("{f}", .{rope});
+    try std.testing.expectEqualStrings("The quick brown fox\njumps\n", &bufferLeft);
+    try writerRight.print("{f}", .{right});
+    try std.testing.expectEqualStrings("over\nthe\nlazy\ndog.", &bufferRight);
+    rope.deinit();
+    right.deinit();
+    try std.testing.expectEqual(std.heap.Check.ok, gpa.deinit());
+}
+
+test join {
+    // Arrange
+    var gpa = std.heap.GeneralPurposeAllocator(.{}).init;
+    const alloc = gpa.allocator();
+    // input
+    const leftSource = "The quick brown fox\njumps\n";
+    const rightSource = "over\nthe\nlazy\ndog.";
+    var reader: std.Io.Reader = .fixed(leftSource);
+    var leftRope: Rope = try .init(alloc);
+    try leftRope.read(&reader);
+    reader = .fixed(rightSource);
+    var rightRope: Rope = try .init(alloc);
+    try rightRope.read(&reader);
+    // output
+    var buffer: [44]u8 = undefined;
+    var writer = std.Io.Writer.fixed(&buffer);
+
+    // Act
+    try leftRope.join(&rightRope);
+
+    // Assert
+    try writer.print("{f}", .{leftRope});
+    try std.testing.expectEqualStrings("The quick brown fox\njumps\nover\nthe\nlazy\ndog.", &buffer);
+    leftRope.deinit();
+    try std.testing.expectEqual(std.heap.Check.ok, gpa.deinit());
+}
+
+test insert {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}).init;
+    const alloc = gpa.allocator();
+    // input
+    //              0123456789012345678 901234 5
+    const source = "The quick brown fox\njumps\nover\nthe\nlazy\ndog.";
+    var reader = std.Io.Reader.fixed(source);
+    var buffer: [49]u8 = undefined;
+    var writer = std.Io.Writer.fixed(&buffer);
+    var rope: Rope = try .init(alloc);
+    try rope.read(&reader);
+
+    try rope.insert(10, "cool ");
+
+    try writer.print("{f}", .{rope});
+    try std.testing.expectEqualStrings("The quick cool brown fox\njumps\nover\nthe\nlazy\ndog.", &buffer);
+    rope.deinit();
+    try std.testing.expectEqual(std.heap.Check.ok, gpa.deinit());
 }
