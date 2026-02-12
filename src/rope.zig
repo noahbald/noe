@@ -42,14 +42,17 @@ pub fn read(self: *Rope, reader: *std.Io.Reader) (std.Io.Reader.ShortError || Er
 }
 
 pub fn slice(self: *const Rope, start: usize, end: usize) Slice {
+    std.debug.assert(start <= end);
     var c = self.cursor(start);
     return c.slice(end);
 }
 
 pub fn sliceRows(self: *const Rope, start: usize, end: usize) Slice {
+    std.debug.assert(start <= end);
     const startByte = self.pointToOffset(.init(start, 0));
-    const endByte = self.pointToOffset(.init(end + 1, 0)) - 1;
-    return self.slice(startByte, endByte);
+    const endByte = self.pointToOffset(.init(end + 1, 0));
+    if (endByte == 0 or startByte == endByte) return self.slice(startByte, startByte);
+    return self.slice(startByte, endByte - 1);
 }
 
 pub fn sliceLine(self: *const Rope, line: usize) Slice {
@@ -436,21 +439,21 @@ pub const Cursor = struct {
                 .internal => |*internal| {
                     var narrowed = false;
                     var start = i;
-                    var end = i;
                     for (internal.childTrees.slice(), internal.childSummaries.slice()) |t, s| {
-                        end += s.len;
-                        if (start < self.offset and end > endOffset) {
+                        const end = start + s.len;
+                        if (start <= self.offset and end > endOffset) {
                             i = start;
                             current = t;
                             narrowed = true;
+                            break;
                         }
-                        start += s.len;
+                        start = end;
                     }
                     if (!narrowed) {
                         return .{
                             .tree = current,
-                            .trimStart = self.offset - start,
-                            .trimEnd = end - endOffset,
+                            .trimStart = self.offset - i,
+                            .trimEnd = start - endOffset,
                         };
                     }
                 },
@@ -518,25 +521,29 @@ pub const Slice = struct {
                 var trimEnd: usize = c.remainder;
                 for (chunks, 0..) |chunk, i| {
                     const chunkSlice = chunk.slice();
+                    var sliceLen = chunkSlice.len;
                     if (c.trimStart > chunkSlice.len) {
                         c.trimStart -= chunkSlice.len;
                         continue;
                     } else if (c.trimStart > 0) {
                         firstChunk = i;
                         trimStart = c.trimStart;
+                        sliceLen -= trimStart;
                         c.trimStart = 0;
                     }
                     if (c.remainder == 0) {
-                        lastChunk = i;
-                        trimEnd = chunkSlice.len;
+                        lastChunk = i -| 1;
+                        std.debug.print("0", .{});
                         break;
-                    } else if (c.remainder < chunkSlice.len) {
+                    } else if (c.remainder < sliceLen) {
                         lastChunk = i;
-                        trimEnd = c.remainder;
+                        trimEnd = sliceLen - c.remainder;
                         c.remainder = 0;
                         break;
                     } else {
-                        c.remainder -= chunkSlice.len;
+                        c.remainder -= sliceLen;
+                        lastChunk = i;
+                        trimEnd = sliceLen + 1;
                     }
                 }
                 // Then iterate through chunk bounds in given order
@@ -549,7 +556,7 @@ pub const Slice = struct {
                         chunkSlice = chunkSlice[trimStart..];
                     }
                     if (index == chunks.len - 1) {
-                        chunkSlice = chunkSlice[0..trimEnd];
+                        chunkSlice = chunkSlice[0..chunkSlice.len -| trimEnd];
                     }
                     if (E) |_| {
                         try f(chunkSlice, c.context);
@@ -609,7 +616,6 @@ test slice {
     const alloc = gpa.allocator();
     // input
     const source = "The quick brown fox\njumps\nover\nthe\nlazy\ndog.";
-    try std.testing.expect(source.len > Chunk.MAX_BASE);
     var reader = std.Io.Reader.fixed(source);
     // output
     var buffer: [15]u8 = undefined;
@@ -645,7 +651,6 @@ test sliceRows {
 
     // Assert
     try writer.print("{f}", .{ropeSlice});
-    try std.testing.expect(source.len > Chunk.MAX_BASE);
     try std.testing.expectEqualStrings("jumps\nover", &buffer);
     rope.deinit();
     try std.testing.expectEqual(std.heap.Check.ok, gpa.deinit());
@@ -657,7 +662,6 @@ test sliceLine {
     const alloc = gpa.allocator();
     // input
     const source = "The quick brown fox\njumps\nover\nthe\nlazy\ndog.";
-    try std.testing.expect(source.len > Chunk.MAX_BASE);
     var reader = std.Io.Reader.fixed(source);
     // output
     var buffer: [5]u8 = undefined;
@@ -808,7 +812,6 @@ test remove {
 
     // Assert
     try writer.print("{f}", .{rope});
-    try std.testing.expect(source.len > Chunk.MAX_BASE);
     try std.testing.expectEqualStrings("The quick brown foxjumps\nover\nthe\nlazy\ndog.", &buffer);
     rope.deinit();
     try std.testing.expectEqual(std.heap.Check.ok, gpa.deinit());

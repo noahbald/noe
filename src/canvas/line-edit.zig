@@ -4,6 +4,7 @@ const std = @import("std");
 const Buffer = @import("../editor/buffer.zig");
 const Canvas = @import("../canvas.zig");
 const rope = @import("../rope.zig");
+const arrayVec = @import("../rope/array-vec.zig");
 const Chunk = @import("../rope/chunk.zig");
 const sumTree = @import("../rope/sum-tree.zig");
 
@@ -18,8 +19,13 @@ const GUTTER_SIZE = 4;
 pub fn draw(self: *const LineEdit, canvas: *Canvas) [2]u16 {
     const line = self.buffer.scroll;
     const slice = self.buffer.buffer.sliceRows(line, line + @as(usize, self.height));
+    const scrollOffset = self.buffer.buffer.pointToOffset(.init(line, 0));
+    const cursorOffset = self.buffer.buffer.pointToOffset(self.buffer.cursor);
+    const insertingChunkStart = cursorOffset - scrollOffset + 1;
     var context: DrawVisitorContext = .{
         .canvas = canvas,
+        .insertingChunk = self.buffer.insertingChunk.slice(),
+        .insertingChunkStart = insertingChunkStart,
         .line = line,
     };
     slice.visit(*DrawVisitorContext, null, drawVisitor, &context);
@@ -33,13 +39,23 @@ pub fn draw(self: *const LineEdit, canvas: *Canvas) [2]u16 {
 }
 const DrawVisitorContext = struct {
     canvas: *Canvas,
+    insertingChunk: []const u8,
+    insertingChunkStart: usize,
     row: u16 = 0,
     col: u16 = 0,
     line: usize,
 };
 fn drawVisitor(chunk: []const u8, context: *DrawVisitorContext) void {
     if (context.row > context.canvas.height) return;
+    drawChunk(chunk, context);
+}
+fn drawChunk(chunk: []const u8, context: *DrawVisitorContext) void {
     for (chunk) |char| {
+        if (context.insertingChunkStart == 1) {
+            context.insertingChunkStart -= 1;
+            drawChunk(context.insertingChunk, context);
+        }
+        if (context.insertingChunkStart > 0) context.insertingChunkStart -= 1;
         if (context.col == 0) {
             drawGutter(context);
         }
