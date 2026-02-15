@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 
 const iters = @import("../iter.zig");
 const Ordering = @import("../ordering.zig").Ordering;
@@ -47,9 +48,9 @@ pub fn Visitor(comptime T: type, comptime C: type, comptime E: ?type) type {
                 .internal => |*internal| {
                     if (self.visitInternal) |f| {
                         if (E) |_| {
-                            try f.?(internal, context);
+                            try f(internal, context);
                         } else {
-                            f.?(internal, context);
+                            f(internal, context);
                         }
                     }
                     const children = internal.childTrees.slice();
@@ -189,6 +190,48 @@ pub fn SumTree(comptime T: type) type {
             return .{ .tree = self };
         }
 
+        pub fn FindResult(comptime D: type) type {
+            return struct { start: D, end: D, item: ?*const T };
+        }
+        fn FindContext(comptime D: type, comptime Target: type) type {
+            return struct {
+                position: D,
+                target: *const Target,
+                bias: Bias,
+                cx: T.Summary.Context,
+                result: ?struct { item: *const T, end: D } = null,
+
+                const Context = @This();
+                pub const Error = error{Done};
+
+                pub fn visitInternal(internal: *const Internal, cx: *Context) Context.Error!void {
+                    const childSummaries = internal.childSummaries.slice();
+                    for (childSummaries) |childSummary| {
+                        const childEnd = cx.position.withAddedSummary(&childSummary, cx.cx);
+                        const cmp = cx.target.cmpSeekTarget(&childEnd, cx.cx);
+                        const targetInChild = cmp == .less or (cmp == .equal and cx.bias == .left);
+                        if (targetInChild) {
+                            return;
+                        }
+                        cx.position = childEnd;
+                    }
+                }
+                pub fn visitLeaf(leaf: *const Leaf, cx: *Context) Context.Error!void {
+                    const items = leaf.items.slice();
+                    const itemSummaries = leaf.itemSummaries.slice();
+                    for (items, itemSummaries) |*item, itemSummary| {
+                        const childEnd = cx.position.withAddedSummary(&itemSummary, cx.cx);
+                        const cmp = cx.target.cmpSeekTarget(&childEnd, cx.cx);
+                        const entryFound = cmp == .less or (cmp == .equal and cx.bias == .left);
+                        if (entryFound) {
+                            cx.result = .{ .item = item, .end = childEnd };
+                            return error.Done;
+                        }
+                        cx.position = childEnd;
+                    }
+                }
+            };
+        }
         pub fn find(
             self: *const Self,
             comptime D: type,
@@ -196,7 +239,7 @@ pub fn SumTree(comptime T: type) type {
             cx: T.Summary.Context,
             target: *const Target,
             bias: Bias,
-        ) struct { D, D, ?*const T } {
+        ) FindResult(D) {
             const treeEnd = D.zero(cx).withAddedSummary(&self.summary(), cx);
             const comparison = target.cmpSeekTarget(&treeEnd, cx);
             const isEnd = switch (comparison) {
@@ -205,63 +248,27 @@ pub fn SumTree(comptime T: type) type {
                 .less => false,
             };
             if (isEnd) {
-                return .{ treeEnd, treeEnd, null };
+                return .{ .start = treeEnd, .end = treeEnd, .item = null };
             }
 
-            var pos: D = .zero(cx);
-            if (self.findRecurse(D, Target, false, cx, target, bias, &pos)) |result| {
-                return .{ pos, result[1], result[0] };
-            } else {
-                return .{ pos, pos, null };
-            }
-        }
+            const Context = FindContext(D, Target);
+            var context: Context = .{
+                .position = D.zero(cx),
+                .target = target,
+                .bias = bias,
+                .cx = cx,
+            };
+            const visitor: ThisVisitor(*Context, Context.Error) = .{
+                .visitInternal = Context.visitInternal,
+                .visitLeaf = Context.visitLeaf,
+            };
 
-        pub fn findRecurse(
-            this: *const Self,
-            comptime D: type,
-            comptime Target: type,
-            comptime EXACT: bool,
-            cx: T.Summary.Context,
-            target: *const Target,
-            bias: Bias,
-            position: *D,
-        ) ?struct { *const T, D } {
-            switch (this.*) {
-                .internal => |*internal| {
-                    var childTrees = internal.childTrees.iter();
-                    var childSummaries = internal.childSummaries.iter();
-                    while (true) {
-                        const childTree = childTrees.next() orelse break;
-                        const childSummary = childSummaries.next() orelse break;
-                        const childEnd = position.withAddedSummary(childSummary, cx);
-
-                        const comparison = target.cmpSeekTarget(&childEnd, cx);
-                        const targetInChild = comparison == .less or (comparison == .equal and bias == .left);
-                        if (targetInChild) {
-                            return childTree.*.findRecurse(D, Target, false, cx, target, bias, position);
-                        }
-                        position.* = childEnd;
-                    }
-                },
-                .leaf => |*leaf| {
-                    var items = leaf.items.iter();
-                    var itemSummaries = leaf.itemSummaries.iter();
-                    while (true) {
-                        const item = items.next() orelse break;
-                        const itemSummary = itemSummaries.next() orelse break;
-                        var childEnd = position.clone();
-                        childEnd.addSummary(itemSummary, cx);
-
-                        const comparison = target.cmpSeekTarget(&childEnd, cx);
-                        const entryFound = if (EXACT) comparison == .equal else comparison == .less or (comparison == .equal and bias == .left);
-                        if (entryFound) {
-                            return .{ item, childEnd };
-                        }
-                        position.* = childEnd;
-                    }
-                },
-            }
-            return null;
+            visitor.visit(self, &context) catch {
+                if (context.result) |result| {
+                    return .{ .start = context.position, .end = result.end, .item = result.item };
+                }
+            };
+            return .{ .start = context.position, .end = context.position, .item = null };
         }
 
         /// Inserts the item to the last possible position within the tree.
@@ -297,6 +304,7 @@ pub fn SumTree(comptime T: type) type {
                     newLeaf.leaf.summary = newLeaf.leaf.summary.add(&itemSummary, context);
 
                     // Return leaf to be handled by parent
+                    self.checkInvariants(context);
                     return newLeaf;
                 },
                 .internal => |*internal| {
@@ -309,6 +317,7 @@ pub fn SumTree(comptime T: type) type {
                             try internal.childTrees.push(newChild);
                             try internal.childSummaries.push(newChild.summary());
                             internal.summary = internal.summary.add(&newChild.summary(), context);
+                            self.checkInvariants(context);
                             return null;
                         }
                         // Otherwise, create a new node and propogate to parent
@@ -323,6 +332,7 @@ pub fn SumTree(comptime T: type) type {
                         try newInternal.internal.childTrees.push(newChild);
                         try newInternal.internal.childSummaries.push(newChild.summary());
 
+                        self.checkInvariants(context);
                         return newInternal;
                     } else {
                         // Update our summary to match updated child
@@ -332,10 +342,76 @@ pub fn SumTree(comptime T: type) type {
 
                         internalLastChildSummary.* = lastChildSummary;
                         internal.summary = internal.summary.add(&difference, context);
+                        self.checkInvariants(context);
                         return null;
                     }
                 },
             }
+        }
+
+        const CheckInvariantsContext = struct {
+            cx: T.Summary.Context,
+
+            pub fn visitInternal(internal: *const Internal, cx: *@This()) void {
+                var computed = T.Summary.zero(cx.cx);
+                for (internal.childSummaries.slice()) |childSummary| {
+                    computed = computed.add(&childSummary, cx.cx);
+                }
+                if (!computed.eq(&internal.summary, cx.cx)) {
+                    std.debug.panic(
+                        \\Incorrect internal summary!
+                        \\    Current: {any}
+                        \\    Computed: {any}
+                        \\
+                    , .{ internal.summary, computed });
+                }
+                for (internal.childTrees.slice(), internal.childSummaries.slice(), 0..) |child, childSummary, i| {
+                    const sum = child.summary();
+                    if (!sum.eq(&childSummary, cx.cx)) {
+                        std.debug.panic(
+                            \\Incorrect child summary at {d}!
+                            \\    Current: {any}
+                            \\    Computed: {any}
+                            \\
+                        , .{ i, childSummary, sum });
+                    }
+                }
+            }
+            pub fn visitLeaf(leaf: *const Leaf, cx: *@This()) void {
+                var computed = T.Summary.zero(cx.cx);
+                for (leaf.itemSummaries.slice()) |itemSummary| {
+                    computed = computed.add(&itemSummary, cx.cx);
+                }
+                if (!computed.eq(&leaf.summary, cx.cx)) {
+                    std.debug.panic(
+                        \\Incorrect leaf summary!
+                        \\    Current: {any}
+                        \\    Computed: {any}
+                        \\
+                    , .{ leaf.summary, computed });
+                }
+                for (leaf.items.slice(), leaf.itemSummaries.slice(), 0..) |item, itemSummary, i| {
+                    const sum = item.summary(cx.cx);
+                    if (!sum.eq(&itemSummary, cx.cx)) {
+                        std.debug.panic(
+                            \\Incorrect item summary at {d}!
+                            \\    Current: {any}
+                            \\    Computed: {any}
+                            \\
+                        , .{ i, leaf.summary, computed });
+                    }
+                }
+            }
+        };
+        pub fn checkInvariants(self: *const Self, context: T.Summary.Context) void {
+            comptime if (builtin.mode != .Debug) return;
+            var cx: CheckInvariantsContext = .{ .cx = context };
+            const visitor: ThisVisitor(*CheckInvariantsContext, null) = .{
+                .visitInternal = CheckInvariantsContext.visitInternal,
+                .visitLeaf = CheckInvariantsContext.visitLeaf,
+            };
+
+            visitor.visit(self, &cx);
         }
     };
 }

@@ -51,7 +51,9 @@ pub fn sliceRows(self: *const Rope, start: usize, end: usize) Slice {
     std.debug.assert(start <= end);
     const startByte = self.pointToOffset(.init(start, 0));
     const endByte = self.pointToOffset(.init(end + 1, 0));
-    if (endByte == 0 or startByte == endByte) return self.slice(startByte, startByte);
+    if (endByte == 0 or startByte == endByte) {
+        return self.slice(startByte, startByte);
+    }
     return self.slice(startByte, endByte - 1);
 }
 
@@ -118,6 +120,7 @@ pub fn remove(self: *Rope, offset: usize) Error!void {
 
     var right = try self.split(offset);
     if (right) |*r| {
+        if (r.len() <= 1) return;
         defer r.deinit();
         var rest = try r.split(1);
         if (rest) |*r2| {
@@ -128,8 +131,12 @@ pub fn remove(self: *Rope, offset: usize) Error!void {
 
 /// Splits the rope by mutation at the given offset, popping and returning the remaining rope.
 pub fn split(self: *Rope, offset: usize) Error!?Rope {
+    self.tree.checkInvariants(void{});
+
     var right: Rope = .{ .tree = undefined, .gpa = self.gpa };
     right.tree = try self.splitTree(offset, 0) orelse return null;
+    self.tree.checkInvariants(void{});
+    right.tree.checkInvariants(void{});
     return right;
 }
 fn splitTree(self: *Rope, offset: usize, baseOffset: usize) Error!?*Tree {
@@ -152,6 +159,7 @@ fn splitTree(self: *Rope, offset: usize, baseOffset: usize) Error!?*Tree {
             var middle: Rope = .{ .tree = undefined, .gpa = self.gpa };
             middle.tree = internal.childTrees.slice()[i];
             const rightStart = try middle.splitTree(offset, currentOffset);
+            internal.childSummaries.sliceMut()[i] = internal.childTrees.slice()[i].summary();
             const hasRemainingChildren = i + 1 < internal.childTrees.slice().len;
             const hasRightContent = rightStart != null or hasRemainingChildren;
 
@@ -185,6 +193,8 @@ fn splitTree(self: *Rope, offset: usize, baseOffset: usize) Error!?*Tree {
                 for (internal.childSummaries.slice()) |sum| {
                     internal.summary = internal.summary.add(&sum, void{});
                 }
+                self.tree.checkInvariants(void{});
+                right.checkInvariants(void{});
                 return right;
             } else {
                 return null;
@@ -229,11 +239,15 @@ fn splitTree(self: *Rope, offset: usize, baseOffset: usize) Error!?*Tree {
 
             // Slice left tree
             leaf.items.sliceMut()[i] = try .init(middle.text.slice()[0..splitText]);
+            leaf.itemSummaries.sliceMut()[i] = leaf.items.slice()[i].summary(void{});
             leaf.items.len = i + 1;
+            leaf.itemSummaries.len = i + 1;
             leaf.summary = Chunk.Summary.zero(void{});
             for (leaf.items.slice()) |item| {
                 leaf.summary = leaf.summary.add(&item.summary(void{}), void{});
             }
+            self.tree.checkInvariants(void{});
+            right.checkInvariants(void{});
             return right;
         },
     }
@@ -251,6 +265,7 @@ pub fn join(self: *Rope, other: *Rope) Error!void {
         return;
     }
     try self.joinTree(other);
+    self.tree.checkInvariants(void{});
 }
 fn joinTree(self: *Rope, other: *Rope) Error!void {
     const leftHeight = self.tree.height();
@@ -372,8 +387,8 @@ pub fn pointToOffset(self: *const Rope, point: Point) usize {
     if (point.cmp(&selfSummary.lines).gte()) return selfSummary.len;
 
     const result = self.tree.find(sumTree.Dimensions(Point, Point.USize, null), Point, void{}, &point, .left);
-    const start = result[0];
-    const item = result[2];
+    const start = result.start;
+    const item = result.item;
     const overshoot = point.sub(&start.d1);
     return start.d2.inner + if (item) |chunk| chunk.asSlice().pointToOffset(overshoot) else 0;
 }
@@ -385,8 +400,8 @@ pub fn offsetToPoint(self: *const Rope, offset: usize) Point {
     }
     const target: Point.USize = .{ .inner = offset };
     const result = self.tree.find(sumTree.Dimensions(Point.USize, Point, null), Point.USize, void{}, &target, .left);
-    var start = result[0];
-    const item = result[2];
+    var start = result.start;
+    const item = result.item;
     const overshoot = offset - start.d1.inner;
     return start.d2.add(if (item) |chunk| &chunk.asSlice().offsetToPoint(overshoot) else &Point.zero(void{}));
 }
@@ -441,7 +456,7 @@ pub const Cursor = struct {
                     var start = i;
                     for (internal.childTrees.slice(), internal.childSummaries.slice()) |t, s| {
                         const end = start + s.len;
-                        if (start <= self.offset and end > endOffset) {
+                        if (start <= self.offset and end >= endOffset) {
                             i = start;
                             current = t;
                             narrowed = true;
@@ -533,7 +548,6 @@ pub const Slice = struct {
                     }
                     if (c.remainder == 0) {
                         lastChunk = i -| 1;
-                        std.debug.print("0", .{});
                         break;
                     } else if (c.remainder < sliceLen) {
                         lastChunk = i;
@@ -813,6 +827,34 @@ test remove {
     // Assert
     try writer.print("{f}", .{rope});
     try std.testing.expectEqualStrings("The quick brown foxjumps\nover\nthe\nlazy\ndog.", &buffer);
+    rope.deinit();
+    try std.testing.expectEqual(std.heap.Check.ok, gpa.deinit());
+}
+
+test "remove chunk boundary" {
+    // Arrange
+    var gpa = std.heap.GeneralPurposeAllocator(.{}).init;
+    const alloc = gpa.allocator();
+    // input
+    //              01234567890123456789
+    const source = "The quick brown fox\njumps\nover\nthe\nlazy\ndog.";
+    var reader = std.Io.Reader.fixed(source);
+    // output
+    var buffer: [43]u8 = undefined;
+    var writer = std.Io.Writer.fixed(&buffer);
+    var rope: Rope = try .init(alloc);
+    try rope.read(&reader);
+
+    // Act
+    try rope.remove(Chunk.MAX_BASE);
+    rope.tree.checkInvariants(void{});
+    try rope.remove(Chunk.MAX_BASE);
+    rope.tree.checkInvariants(void{});
+    const ropeSlice = rope.sliceRows(0, 6);
+
+    // Assert
+    try writer.print("{f}", .{ropeSlice});
+    try std.testing.expectEqualStrings("The quick brown x\njumps\nover\nthe\nlazy\ndog.", &buffer);
     rope.deinit();
     try std.testing.expectEqual(std.heap.Check.ok, gpa.deinit());
 }

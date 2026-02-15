@@ -59,6 +59,10 @@ pub const Summary = struct {
             .lines = self.lines.sub(&other.lines),
         };
     }
+
+    pub fn eq(self: *const Summary, other: *const Summary, _: Context) bool {
+        return self.len == other.len and self.lines.cmp(&other.lines) == .equal;
+    }
 };
 
 pub fn init(text: []const u8) arrayVec.Error!Chunk {
