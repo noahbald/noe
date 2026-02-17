@@ -33,6 +33,7 @@ pub fn flush(self: *Buffer) !void {
     self.insertingChunk.len = 0;
 }
 pub fn insert(self: *Buffer, char: u8) !void {
+    if (char == '\r') return self.insert('\n'); // raw mode does not pre-process \r to \r\n
     if (char == std.ascii.control_code.bs or char == 0x7f) {
         if (self.insertingChunk.len > 0) {
             _ = self.insertingChunk.pop();

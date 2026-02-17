@@ -103,6 +103,7 @@ pub fn insert(self: *Rope, offset: usize, text: []const u8) Error!void {
         errdefer left.deinit();
         try left.push(text);
         std.mem.swap(Tree, self.tree, left.tree); // left is now right
+        try self.join(&left);
         return;
     }
 
@@ -564,7 +565,7 @@ pub const Slice = struct {
                 const lastChunkTerminal = if (reverse) &firstChunk else &lastChunk;
                 const lastTrimTerminal = if (reverse) &trimStart else &trimEnd;
                 for (firstChunk..lastChunk + 1) |i| {
-                    const index = if (reverse) lastChunk - i - 1 else i;
+                    const index = if (reverse) lastChunk - i else i;
                     const chunk = chunks[index].slice();
                     var length = chunk.len;
                     if (i == firstChunk) {
