@@ -30,6 +30,11 @@ pub const Char = enum(u8) {
 
     // Changes
     InsertMode = 'i',
+    AppendMode = 'a',
+    InsertAtLineStart = 'I',
+    InsertAtLineEnd = 'A',
+    OpenBelow = 'o',
+    OpenAbove = 'O',
     NormalMode = std.ascii.control_code.esc,
     _,
 };

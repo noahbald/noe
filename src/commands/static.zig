@@ -2,7 +2,7 @@ const std = @import("std");
 
 const Editor = @import("../editor.zig");
 
-const Error = error{QuitFailed};
+const Error = error{ QuitFailed, EditFailed };
 
 /// The list of editor commands that require no arguments.
 ///
@@ -28,6 +28,11 @@ pub const Static = union(enum) {
     GotoLineStart,
     GotoLineEnd,
     InsertMode,
+    AppendMode,
+    InsertAtLineStart,
+    InsertAtLineEnd,
+    OpenBelow,
+    OpenAbove,
     NormalMode,
     Quit,
     QuitForce,
@@ -54,6 +59,11 @@ pub const Static = union(enum) {
             .GotoLineEnd => gotoLineEnd(editor),
             .InsertMode => insertMode(editor),
             .NormalMode => normalMode(editor),
+            .AppendMode => appendMode(editor),
+            .InsertAtLineStart => insertAtLineStart(editor),
+            .InsertAtLineEnd => insertAtLineEnd(editor),
+            .OpenBelow => openBelow(editor),
+            .OpenAbove => openAbove(editor),
             .Quit => quit(editor),
             .QuitForce => quitForce(editor),
             else => noop(editor),
@@ -106,6 +116,11 @@ pub const Static = union(enum) {
             .GotoLineStart => writer.write("GotoLineStart"),
             .GotoLineEnd => writer.write("GotoLineEnd"),
             .InsertMode => writer.write("InsertMode"),
+            .AppendMode => writer.write("AppendMode"),
+            .InsertAtLineStart => writer.write("InsertAtLineStart"),
+            .InsertAtLineEnd => writer.write("InsertAtLineEnd"),
+            .OpenBelow => writer.write("OpenBelow"),
+            .OpenAbove => writer.write("OpenAbove"),
             .NormalMode => writer.write("NormalMode"),
             .Quit => writer.write("Quit"),
             .QuitForce => writer.write("QuitForce"),
@@ -176,6 +191,29 @@ fn insertMode(editor: *Editor) void {
 }
 fn normalMode(editor: *Editor) void {
     editor.mode = .Normal;
+}
+fn appendMode(editor: *Editor) void {
+    cursorRight(editor);
+    normalMode(editor);
+}
+fn insertAtLineStart(editor: *Editor) void {
+    gotoLineStart(editor);
+    insertMode(editor);
+}
+fn insertAtLineEnd(editor: *Editor) void {
+    gotoLineEnd(editor);
+    insertMode(editor);
+}
+fn openAbove(editor: *Editor) Error!void {
+    cursorUp(editor);
+    gotoLineEnd(editor);
+    editor.private.window.?.insert('\n') catch return Error.EditFailed;
+    insertMode(editor);
+}
+fn openBelow(editor: *Editor) Error!void {
+    gotoLineEnd(editor);
+    editor.private.window.?.insert('\n') catch return Error.EditFailed;
+    insertMode(editor);
 }
 fn quit(editor: *Editor) Error!void {
     // TODO: Check unsaved files

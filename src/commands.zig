@@ -25,6 +25,11 @@ pub fn char(c: u8) Static {
         .PageUp => .PageUp,
         .PageDown => .PageDown,
         .InsertMode => .InsertMode,
+        .InsertAtLineStart => .InsertAtLineStart,
+        .InsertAtLineEnd => .InsertAtLineEnd,
+        .OpenBelow => .OpenBelow,
+        .OpenAbove => .OpenAbove,
+        .AppendMode => .AppendMode,
         .NormalMode => .NormalMode,
         _ => .Noop,
     };
