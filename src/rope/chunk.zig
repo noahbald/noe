@@ -12,6 +12,7 @@ const ArrayVec = arrayVec.ArrayVec;
 const Chunk = @This();
 
 const Bitmap = if (builtin.is_test) u16 else u128;
+const Bitsize = std.math.Log2Int(Bitmap);
 // const Bitmap = u128;
 
 pub const MAX_BASE = @bitSizeOf(Bitmap);
@@ -140,6 +141,13 @@ pub const Slice = struct {
     text: []const u8,
     inner: *const Chunk,
 
+    /// Returns a bitmap with a popcount and leading zeroes outside of the text range
+    /// omitted. Ensures correct `@popcout` and `@clz` after the chunk may have been shortened.
+    /// Invalidates `@ctz`.
+    pub fn sliceBitmap(self: *const Slice, bitmap: Bitmap) Bitmap {
+        return bitmap << @as(std.math.Log2Int(Bitmap), @intCast(@max(MAX_BASE, self.text.len) - self.text.len));
+    }
+
     pub fn textSummary(self: *const Slice) Summary {
         return .{
             .len = self.len(),
@@ -147,9 +155,14 @@ pub const Slice = struct {
         };
     }
 
+    /// Returns the point representing the last row and column of the chunk.
     pub fn lines(self: *const Slice) Point {
-        const row = @popCount(self.inner.newlines);
-        const column = @clz(self.inner.newlines) - (@bitSizeOf(Bitmap) - self.text.len);
+        const newlines = self.sliceBitmap(self.inner.newlines);
+        // The row is the number of positive bits.
+        const row = @popCount(newlines);
+        // The column is the number of zero bits from the start of the chunk (NOTE: The bitmap is little endian).
+        // If `@popCount` is zero, then `newlines` is zero and `@clz` will need to be clamped to `self.text.len`.
+        const column = @min(@clz(newlines), self.text.len);
         return .{ .row = row, .column = column };
     }
 
@@ -172,21 +185,23 @@ pub const Slice = struct {
 
     pub fn offsetToPoint(self: *const Slice, offset: usize) Point {
         const mask = (@as(Bitmap, 1) <<| offset) -% 1;
-        const row = @popCount(self.inner.newlines & mask);
-        const newline = @bitSizeOf(Bitmap) - @clz(self.inner.newlines & mask);
+        const newlines = self.inner.newlines;
+        const row = @popCount(newlines & mask);
+        const newline = @bitSizeOf(Bitmap) - @clz(newlines & mask);
         const column = offset - newline;
         return .{ .row = row, .column = column };
     }
 
     pub fn offsetRangeForRow(self: *const Slice, row: usize) struct { start: usize, end: usize } {
+        const newlines = self.inner.newlines;
         var rowStart: usize = 0;
         if (row > 0) {
-            const newlines: u128 = if (builtin.is_test) @intCast(self.inner.newlines) else self.inner.newlines;
-            rowStart = nthSetBit(newlines, row) + 1;
+            const newlinesWide: u128 = if (builtin.is_test) @intCast(newlines) else newlines;
+            rowStart = nthSetBit(newlinesWide, row) + 1;
         }
         var rowLen: usize = 0;
         if (rowStart != MAX_BASE) {
-            rowLen = @min(@ctz(self.inner.newlines >> @truncate(rowStart)), self.text.len - rowStart);
+            rowLen = @min(@ctz(newlines >> @truncate(rowStart)), self.text.len - rowStart);
         }
         return .{ .start = rowStart, .end = rowStart + rowLen };
     }

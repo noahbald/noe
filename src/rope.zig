@@ -51,9 +51,10 @@ pub fn sliceRows(self: *const Rope, start: usize, end: usize) Slice {
     std.debug.assert(start <= end);
     const startByte = self.pointToOffset(.init(start, 0));
     const endByte = self.pointToOffset(.init(end + 1, 0));
-    if (endByte == 0 or startByte == endByte) {
+    if (endByte == 0 or startByte == endByte)
         return self.slice(startByte, startByte);
-    }
+    if (endByte == self.len())
+        return self.slice(startByte, endByte);
     return self.slice(startByte, endByte - 1);
 }
 
@@ -127,6 +128,7 @@ pub fn remove(self: *Rope, offset: usize) Error!void {
             try self.join(r2);
         }
     }
+    self.tree.checkInvariants(void{});
 }
 
 /// Splits the rope by mutation at the given offset, popping and returning the remaining rope.
@@ -187,8 +189,14 @@ fn splitTree(self: *Rope, offset: usize, baseOffset: usize) Error!?*Tree {
                 }
 
                 // Slice left tree
-                internal.childTrees.len = i + 1;
-                internal.childSummaries.len = i + 1;
+                if (middle.summary().len == 0) {
+                    internal.childTrees.slice()[i].deinit(self.gpa);
+                    internal.childTrees.len = i;
+                    internal.childSummaries.len = i;
+                } else {
+                    internal.childTrees.len = i + 1;
+                    internal.childSummaries.len = i + 1;
+                }
                 internal.summary = Chunk.Summary.zero(void{});
                 for (internal.childSummaries.slice()) |sum| {
                     internal.summary = internal.summary.add(&sum, void{});
@@ -238,10 +246,15 @@ fn splitTree(self: *Rope, offset: usize, baseOffset: usize) Error!?*Tree {
             }
 
             // Slice left tree
-            leaf.items.sliceMut()[i] = try .init(middle.text.slice()[0..splitText]);
-            leaf.itemSummaries.sliceMut()[i] = leaf.items.slice()[i].summary(void{});
-            leaf.items.len = i + 1;
-            leaf.itemSummaries.len = i + 1;
+            if (splitText == 0) {
+                leaf.items.len = i;
+                leaf.itemSummaries.len = i;
+            } else {
+                leaf.items.sliceMut()[i] = try .init(middle.text.slice()[0..splitText]);
+                leaf.itemSummaries.sliceMut()[i] = leaf.items.slice()[i].summary(void{});
+                leaf.items.len = i + 1;
+                leaf.itemSummaries.len = i + 1;
+            }
             leaf.summary = Chunk.Summary.zero(void{});
             for (leaf.items.slice()) |item| {
                 leaf.summary = leaf.summary.add(&item.summary(void{}), void{});
@@ -436,48 +449,46 @@ pub fn toString(
     return buffer;
 }
 
-pub fn cursor(self: *const Rope, offset: usize) Cursor {
-    return .{ .rope = self.tree, .offset = offset };
+pub fn cursor(self: *const Rope, start: usize) Cursor {
+    return .{ .rope = self.tree, .start = start };
 }
 
 pub const Cursor = struct {
     rope: *const Tree,
-    offset: usize = 0,
+    start: usize = 0,
 
-    pub fn slice(self: *Cursor, endOffset: usize) Slice {
-        var i: usize = 0;
+    pub fn slice(self: *Cursor, end: usize) Slice {
+        std.debug.assert(end <= self.rope.summary().len);
         var current = self.rope;
+        var currentStart: usize = 0;
+        var currentEnd = self.rope.summary().len;
 
-        while (true) {
+        current: while (true) {
             // Find the shallowest node containing `offset..endOffset`.
             switch (current.*) {
                 .internal => |*internal| {
-                    var narrowed = false;
-                    var start = i;
+                    var thisStart = currentStart;
                     for (internal.childTrees.slice(), internal.childSummaries.slice()) |t, s| {
-                        const end = start + s.len;
-                        if (start <= self.offset and end >= endOffset) {
-                            i = start;
+                        const thisEnd = thisStart + s.len;
+                        if (thisStart <= self.start and thisEnd >= end) {
+                            currentStart = thisStart;
+                            currentEnd = thisEnd;
                             current = t;
-                            narrowed = true;
-                            break;
+                            continue :current;
                         }
-                        start = end;
+                        thisStart = thisEnd;
                     }
-                    if (!narrowed) {
-                        return .{
-                            .tree = current,
-                            .trimStart = self.offset - i,
-                            .trimEnd = start - endOffset,
-                        };
-                    }
-                },
-                .leaf => |*leaf| {
-                    const end = i + leaf.summary.len;
                     return .{
                         .tree = current,
-                        .trimStart = self.offset - i,
-                        .trimEnd = end - endOffset,
+                        .trimStart = self.start - currentStart,
+                        .trimEnd = currentEnd - end,
+                    };
+                },
+                .leaf => {
+                    return .{
+                        .tree = current,
+                        .trimStart = self.start - currentStart,
+                        .trimEnd = currentEnd - end,
                     };
                 },
             }
@@ -523,7 +534,7 @@ pub const Slice = struct {
         const Visit = struct {
             const Context = struct {
                 context: C,
-                trimStart: usize,
+                trim: usize,
                 remainder: usize,
             };
 
@@ -531,51 +542,58 @@ pub const Slice = struct {
                 // Start by finding chunk bounds
                 var chunks = leaf.items.slice();
                 var firstChunk: usize = 0;
-                var lastChunk: usize = chunks.len - 1;
-                var trimStart: usize = c.trimStart;
-                var trimEnd: usize = c.remainder;
-                for (chunks, 0..) |chunk, i| {
-                    const chunkSlice = chunk.slice();
-                    var sliceLen = chunkSlice.len;
-                    if (c.trimStart > chunkSlice.len) {
-                        c.trimStart -= chunkSlice.len;
-                        continue;
-                    } else if (c.trimStart > 0) {
-                        firstChunk = i;
-                        trimStart = c.trimStart;
-                        sliceLen -= trimStart;
-                        c.trimStart = 0;
-                    }
-                    if (c.remainder == 0) {
-                        lastChunk = i -| 1;
+                var lastChunk = chunks.len - 1;
+                var trimStart: usize = 0;
+                var trimEnd: usize = 0;
+
+                // Seek to first bound
+                const firstChunkTerminal = if (reverse) &lastChunk else &firstChunk;
+                const firstTrimTerminal = if (reverse) &trimEnd else &trimStart;
+                for (firstChunk..lastChunk + 1) |i| {
+                    const index = if (reverse) chunks.len - i - 1 else i;
+                    const chunk = chunks[index].slice();
+                    if (c.trim < chunk.len) {
+                        firstChunkTerminal.* = index;
+                        firstTrimTerminal.* = c.trim;
+                        c.trim = 0;
                         break;
-                    } else if (c.remainder < sliceLen) {
-                        lastChunk = i;
-                        trimEnd = sliceLen - c.remainder;
+                    }
+                    c.trim -= chunk.len;
+                }
+                // Seek to last bound
+                const lastChunkTerminal = if (reverse) &firstChunk else &lastChunk;
+                const lastTrimTerminal = if (reverse) &trimStart else &trimEnd;
+                for (firstChunk..lastChunk + 1) |i| {
+                    const index = if (reverse) lastChunk - i - 1 else i;
+                    const chunk = chunks[index].slice();
+                    var length = chunk.len;
+                    if (i == firstChunk) {
+                        length -= firstTrimTerminal.*;
+                    }
+                    if (c.remainder < length) {
+                        lastChunkTerminal.* = index;
+                        lastTrimTerminal.* = length - c.remainder;
                         c.remainder = 0;
                         break;
-                    } else {
-                        c.remainder -= sliceLen;
-                        lastChunk = i;
-                        trimEnd = sliceLen + 1;
                     }
+                    c.remainder -= length;
                 }
+
                 // Then iterate through chunk bounds in given order
                 chunks = chunks[firstChunk .. lastChunk + 1];
                 for (0..chunks.len) |i| {
                     const index = if (reverse) chunks.len - i - 1 else i;
-                    const chunk = chunks[index];
-                    var chunkSlice = chunk.slice();
+                    var chunk = chunks[index].slice();
                     if (index == 0) {
-                        chunkSlice = chunkSlice[trimStart..];
+                        chunk = chunk[trimStart..];
                     }
                     if (index == chunks.len - 1) {
-                        chunkSlice = chunkSlice[0..chunkSlice.len -| trimEnd];
+                        chunk = chunk[0 .. chunk.len - trimEnd];
                     }
                     if (E) |_| {
-                        try f(chunkSlice, c.context);
+                        try f(chunk, c.context);
                     } else {
-                        f(chunkSlice, c.context);
+                        f(chunk, c.context);
                     }
                 }
             }
@@ -586,7 +604,7 @@ pub const Slice = struct {
         };
         var c: Visit.Context = .{
             .context = context,
-            .trimStart = self.trimStart,
+            .trim = if (reverse) self.trimEnd else self.trimStart,
             .remainder = self.len(),
         };
         return visitor.visitDirection(reverse, self.tree, &c);
@@ -831,7 +849,7 @@ test remove {
     try std.testing.expectEqual(std.heap.Check.ok, gpa.deinit());
 }
 
-test "remove chunk boundary" {
+test "post edit" {
     // Arrange
     var gpa = std.heap.GeneralPurposeAllocator(.{}).init;
     const alloc = gpa.allocator();
@@ -840,7 +858,7 @@ test "remove chunk boundary" {
     const source = "The quick brown fox\njumps\nover\nthe\nlazy\ndog.";
     var reader = std.Io.Reader.fixed(source);
     // output
-    var buffer: [43]u8 = undefined;
+    var buffer: [42]u8 = undefined;
     var writer = std.Io.Writer.fixed(&buffer);
     var rope: Rope = try .init(alloc);
     try rope.read(&reader);
@@ -853,8 +871,41 @@ test "remove chunk boundary" {
     const ropeSlice = rope.sliceRows(0, 6);
 
     // Assert
+    try std.testing.expectEqual(5, rope.sliceLine(1).len());
     try writer.print("{f}", .{ropeSlice});
     try std.testing.expectEqualStrings("The quick brown x\njumps\nover\nthe\nlazy\ndog.", &buffer);
     rope.deinit();
     try std.testing.expectEqual(std.heap.Check.ok, gpa.deinit());
+}
+fn debugSummary(tree: *const Tree, indent: usize) void {
+    if (indent == 0) {
+        std.debug.print("summary:\n", .{});
+    }
+    for (0..indent) |_| {
+        std.debug.print("  ", .{});
+    }
+    const sum = tree.summary();
+    std.debug.print("len: {d}, lines: {any}, type: ", .{ sum.len, sum.lines });
+    switch (tree.*) {
+        .internal => |*internal| {
+            std.debug.print("internal\n", .{});
+            for (internal.childTrees.slice()) |t| {
+                debugSummary(t, indent + 1);
+            }
+        },
+        .leaf => |*leaf| {
+            std.debug.print("leaf\n", .{});
+            for (0..indent) |_| {
+                std.debug.print("  ", .{});
+            }
+            var n: usize = 0;
+            for (leaf.items.slice()) |item| {
+                n += item.text.len;
+                std.debug.print("'", .{});
+                std.debug.print("{s}", .{item.text.slice()});
+                std.debug.print("' ({d} bytes, {b:0>16} newlines bitmap slice) ", .{ item.text.len, item.asSlice().sliceBitmap(item.newlines) });
+            }
+            std.debug.print(" ({d} bytes total)\n", .{n});
+        },
+    }
 }

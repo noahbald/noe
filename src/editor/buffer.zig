@@ -37,9 +37,9 @@ pub fn insert(self: *Buffer, char: u8) !void {
         if (self.insertingChunk.len > 0) {
             _ = self.insertingChunk.pop();
         } else if (self.buffer.len() > 0) {
-            const offset = self.buffer.pointToOffset(self.cursor);
+            const offset = self.buffer.pointToOffset(self.cursor) - 1;
             try self.buffer.remove(offset);
-            self.cursor = self.buffer.offsetToPoint(offset - 1);
+            self.cursor = self.buffer.offsetToPoint(offset);
         }
         return;
     }
