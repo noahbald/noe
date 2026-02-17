@@ -30,20 +30,17 @@ pub fn draw(self: *const LineEdit, canvas: *Canvas) [2]u16 {
     };
     slice.visit(*DrawVisitorContext, null, drawVisitor, &context);
 
-    const column: u16 = @intCast(@min(
-        self.buffer.cursor.column,
-        self.buffer.buffer.sliceLine(self.buffer.cursor.row).len(),
-    ));
-    const row: u16 = @intCast(self.buffer.cursor.row - self.buffer.scroll);
-    return .{ GUTTER_SIZE + 1 + column, row };
+    return .{ GUTTER_SIZE + 1 + context.cursorCol, context.cursorRow };
 }
 const DrawVisitorContext = struct {
     canvas: *Canvas,
     insertingChunk: []const u8,
     insertingChunkStart: usize,
+    line: usize,
     row: u16 = 0,
     col: u16 = 0,
-    line: usize,
+    cursorRow: u16 = 0,
+    cursorCol: u16 = 0,
 };
 fn drawVisitor(chunk: []const u8, context: *DrawVisitorContext) void {
     if (context.row > context.canvas.height) return;
@@ -54,6 +51,8 @@ fn drawChunk(chunk: []const u8, context: *DrawVisitorContext) void {
         if (context.insertingChunkStart == 1) {
             context.insertingChunkStart -= 1;
             drawChunk(context.insertingChunk, context);
+            context.cursorRow = context.row;
+            context.cursorCol = context.col;
         }
         if (context.insertingChunkStart > 0) context.insertingChunkStart -= 1;
         if (context.col == 0) {
