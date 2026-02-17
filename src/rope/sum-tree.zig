@@ -193,45 +193,6 @@ pub fn SumTree(comptime T: type) type {
         pub fn FindResult(comptime D: type) type {
             return struct { start: D, end: D, item: ?*const T };
         }
-        fn FindContext(comptime D: type, comptime Target: type) type {
-            return struct {
-                position: D,
-                target: *const Target,
-                bias: Bias,
-                cx: T.Summary.Context,
-                result: ?struct { item: *const T, end: D } = null,
-
-                const Context = @This();
-                pub const Error = error{Done};
-
-                pub fn visitInternal(internal: *const Internal, cx: *Context) Context.Error!void {
-                    const childSummaries = internal.childSummaries.slice();
-                    for (childSummaries) |childSummary| {
-                        const childEnd = cx.position.withAddedSummary(&childSummary, cx.cx);
-                        const cmp = cx.target.cmpSeekTarget(&childEnd, cx.cx);
-                        const targetInChild = cmp == .less or (cmp == .equal and cx.bias == .left);
-                        if (targetInChild) {
-                            return;
-                        }
-                        cx.position = childEnd;
-                    }
-                }
-                pub fn visitLeaf(leaf: *const Leaf, cx: *Context) Context.Error!void {
-                    const items = leaf.items.slice();
-                    const itemSummaries = leaf.itemSummaries.slice();
-                    for (items, itemSummaries) |*item, itemSummary| {
-                        const childEnd = cx.position.withAddedSummary(&itemSummary, cx.cx);
-                        const cmp = cx.target.cmpSeekTarget(&childEnd, cx.cx);
-                        const entryFound = cmp == .less or (cmp == .equal and cx.bias == .left);
-                        if (entryFound) {
-                            cx.result = .{ .item = item, .end = childEnd };
-                            return error.Done;
-                        }
-                        cx.position = childEnd;
-                    }
-                }
-            };
-        }
         pub fn find(
             self: *const Self,
             comptime D: type,
@@ -251,24 +212,42 @@ pub fn SumTree(comptime T: type) type {
                 return .{ .start = treeEnd, .end = treeEnd, .item = null };
             }
 
-            const Context = FindContext(D, Target);
-            var context: Context = .{
-                .position = D.zero(cx),
-                .target = target,
-                .bias = bias,
-                .cx = cx,
-            };
-            const visitor: ThisVisitor(*Context, Context.Error) = .{
-                .visitInternal = Context.visitInternal,
-                .visitLeaf = Context.visitLeaf,
-            };
+            var position = D.zero(cx);
+            var current = self;
 
-            visitor.visit(self, &context) catch {
-                if (context.result) |result| {
-                    return .{ .start = context.position, .end = result.end, .item = result.item };
+            outer: while (true) {
+                switch (current.*) {
+                    .internal => |*internal| {
+                        const childSummaries = internal.childSummaries.slice();
+                        const childTrees = internal.childTrees.slice();
+                        for (childSummaries, childTrees) |childSummary, childTree| {
+                            const childEnd = position.withAddedSummary(&childSummary, cx);
+                            const cmp = target.cmpSeekTarget(&childEnd, cx);
+                            const targetInChild = cmp == .less or (cmp == .equal and bias == .left);
+                            if (targetInChild) {
+                                current = childTree;
+                                continue :outer;
+                            }
+                            position = childEnd;
+                        }
+                        return .{ .start = position, .end = position, .item = null };
+                    },
+                    .leaf => |*leaf| {
+                        const itemSummaries = leaf.itemSummaries.slice();
+                        const items = leaf.items.slice();
+                        for (itemSummaries, items) |itemSummary, *item| {
+                            const itemEnd = position.withAddedSummary(&itemSummary, cx);
+                            const cmp = target.cmpSeekTarget(&itemEnd, cx);
+                            const itemFound = cmp == .less or (cmp == .equal and bias == .left);
+                            if (itemFound) {
+                                return .{ .start = position, .end = itemEnd, .item = item };
+                            }
+                            position = itemEnd;
+                        }
+                        return .{ .start = position, .end = position, .item = null };
+                    },
                 }
-            };
-            return .{ .start = context.position, .end = context.position, .item = null };
+            }
         }
 
         /// Inserts the item to the last possible position within the tree.
