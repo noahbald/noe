@@ -4,6 +4,7 @@
 //! to the terminal.
 const std = @import("std");
 
+const ansi = @import("ansi.zig");
 const Canvas = @import("canvas.zig");
 const Char = @import("canvas/char.zig");
 const Text = @import("canvas/text.zig");
@@ -169,6 +170,7 @@ pub fn refresh(self: *Editor) !void {
     }
     if (self.redraw) {
         drawEmpty(&canv);
+        _ = try self.private.term.super.writer.interface.write(if (self.mode == .Insert) ansi.CURSOR_BAR else ansi.CURSOR_BLOCK);
         if (self.private.window) |window| {
             var windowCanv: Canvas = canv.view(.{ .height = canv.height - 1 });
             var statusCanv: Canvas = canv.view(.{ .height = 1, .top = canv.height - 1 });

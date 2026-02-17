@@ -3,6 +3,7 @@
 //! The canvas can be freely drawn too, before finally being written to stdout.
 const std = @import("std");
 
+const ansi = @import("ansi.zig");
 const Grapheme = @import("grapheme.zig");
 const term = @import("term.zig");
 const Texel = @import("texel.zig");
@@ -58,12 +59,12 @@ pub fn view(self: Canvas, viewOptions: ViewOptions) Canvas {
 /// Prints the entire canvas, regardless of if this canvas is a view.
 pub fn format(self: Canvas, writer: *std.Io.Writer) std.Io.Writer.Error!void {
     // Hide cursor, then reposition cursor
-    _ = try writer.writeAll("\x1b[?25l\x1b[H");
+    _ = try writer.writeAll(ansi.CURSOR_INVISIBLE ++ ansi.CURSOR_HOME);
 
     for (self.private.buffer, 0..) |texel, i| {
         if (i != 0 and i % self.width == 0) {
             // At the end of a row, write ANSI clear for the remainder of the line, then a newline.
-            _ = try writer.write("\x1b[K");
+            _ = try writer.write(ansi.ERASE_LINE_END);
             if (i < self.private.buffer.len - 1) {
                 _ = try writer.write("\r\n");
             }
@@ -72,7 +73,7 @@ pub fn format(self: Canvas, writer: *std.Io.Writer) std.Io.Writer.Error!void {
     }
 
     // Reposition cursor, then show cursor
-    _ = try writer.writeAll("\x1b[?25h");
+    _ = try writer.writeAll(ansi.CURSOR_VISIBLE);
 }
 
 /// Returns the `[x, y]` value of the canvas's midpoint.

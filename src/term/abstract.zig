@@ -3,6 +3,7 @@
 //! This type should be used as a field in implementor, and never used directly.
 const std = @import("std");
 
+const ansi = @import("../ansi.zig");
 const Keypress = @import("../keypress.zig");
 
 const Term = @This();
@@ -23,7 +24,7 @@ pub fn init(buffer: []u8) Term {
 
 /// Resets terminal state upon exit.
 pub fn deinit(self: *Term, parent: anytype) !void {
-    _ = try self.writer.interface.writeAll("\x1b[2J\x1b[H");
+    _ = try self.writer.interface.writeAll(ansi.ERASE_SCREEN ++ ansi.CURSOR_HOME);
     return parent.disableRawMode();
 }
 
@@ -32,7 +33,7 @@ pub fn deinit(self: *Term, parent: anytype) !void {
 pub fn getWindowSize(
     self: *Term,
 ) (std.Io.Writer.Error || std.Io.Reader.StreamError || std.fmt.ParseIntError)!Position {
-    try self.writer.interface.writeAll("\x1b[999C\x1b[999B");
+    try self.writer.interface.writeAll(ansi.cursorMove("999", "999"));
     return try self.getCursorPosition();
 }
 
@@ -48,14 +49,14 @@ pub fn height(_: *Term) u16 {
 
 /// Clears the terminal window
 pub fn clear(self: *Term) std.Io.Writer.Error!void {
-    _ = try self.writer.interface.write("\x1b[2J");
+    _ = try self.writer.interface.write(ansi.ERASE_SCREEN);
 }
 
 /// Returns the column and row of the cursor.
 pub fn getCursorPosition(
     self: *Term,
 ) (std.Io.Writer.Error || std.Io.Reader.StreamError || std.fmt.ParseIntError)!Position {
-    _ = try self.writer.interface.write("\x1b[6n\r\n");
+    _ = try self.writer.interface.write(ansi.CURSOR_REQUEST ++ "\r\n");
 
     var buffer: [32]u8 = undefined;
     var stream = std.Io.Writer.fixed(&buffer);
@@ -71,7 +72,7 @@ pub fn getCursorPosition(
 
 /// Sends a signal to the terminal to update the cursor position.
 pub fn setCursorPosition(self: *Term, x: u16, y: u16) std.Io.Writer.Error!void {
-    _ = try self.writer.interface.print("\x1b[{d};{d}H", .{ y + 1, x + 1 });
+    _ = try self.writer.interface.print(ansi.CURSOR_SET_TEMPLATE, .{ y + 1, x + 1 });
     try self.writer.interface.flush();
 }
 

@@ -3,6 +3,7 @@
 //! Usable wherever termios is usable, i.e. UNIX and WASI platforms.
 const std = @import("std");
 
+const ansi = @import("../ansi.zig");
 const Keypress = @import("../keypress.zig");
 
 const AbstractTerm = @import("abstract.zig");
@@ -143,7 +144,7 @@ pub fn setCursorPosition(self: *Term, x: u16, y: u16) std.Io.Writer.Error!void {
 /// program exit.
 pub fn enableRawMode(self: *Term) (std.Io.Writer.Error || std.posix.TermiosSetError)!void {
     // Enable alternate buffer.
-    _ = try self.super.writer.interface.write("\x1b[?1049h");
+    _ = try self.super.writer.interface.write(ansi.ALT_BUFFER_ENABLE);
     try self.super.writer.interface.flush();
     // Disable printing of input keys.
     self.termios.lflag.ECHO = false;
@@ -180,13 +181,13 @@ pub fn disableRawMode(self: *Term) (std.Io.Writer.Error || std.posix.TermiosSetE
 }
 fn _disableRawMode(stdout: *std.Io.Writer, stdin: std.fs.File) (std.Io.Writer.Error || std.posix.TermiosSetError)!void {
     // Reset ANSI.
-    try stdout.writeAll("\x1b[0m");
+    try stdout.writeAll(ansi.RESET_MODE);
     // Reset termios state.
     if (initial) |termios| {
         try std.posix.tcsetattr(stdin.handle, .FLUSH, termios);
     }
     // Disable alternate buffer.
-    _ = try stdout.write("\x1b[?1049l");
+    _ = try stdout.write(ansi.ALT_BUFFER_DISABLE);
     try stdout.flush();
 }
 

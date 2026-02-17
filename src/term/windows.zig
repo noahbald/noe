@@ -3,6 +3,7 @@
 //! Usable wherever console is usable, i.e. UNIX and WASI platforms.
 const std = @import("std");
 
+const ansi = @import("../ansi.zig");
 const Keypress = @import("../keypress.zig");
 
 const AbstractTerm = @import("abstract.zig");
@@ -134,7 +135,7 @@ const DWInputMode = struct {
 /// program exit.
 pub fn enableRawMode(self: *Term) (std.Io.Writer.Error || std.posix.UnexpectedError)!void {
     // Enable alternate buffer.
-    try self.super.writer.interface.writeAll("\x1b[?1049h");
+    try self.super.writer.interface.writeAll(ansi.ALT_BUFFER_ENABLE);
 
     self.mode.output |= DWOutputMode.ENABLE_VIRTUAL_TERMINAL_PROCESSING | DWOutputMode.DISABLE_NEWLINE_AUTO_RETURN | DWOutputMode.ENABLE_PROCESSED_OUTPUT;
     self.mode.input |= DWInputMode.ENABLE_VIRTUAL_TERMINAL_INPUT & !(DWInputMode.ENABLE_PROCESSED_INPUT | DWInputMode.ENABLE_LINE_INPUT | DWInputMode.ENABLE_ECHO_INPUT);
@@ -145,14 +146,14 @@ pub fn enableRawMode(self: *Term) (std.Io.Writer.Error || std.posix.UnexpectedEr
 /// Disables raw mode for the terminal, restoring the user's attributes.
 pub fn disableRawMode(self: *Term) (std.Io.Writer.Error || std.posix.TermiosSetError)!void {
     // Reset ANSI.
-    try self.super.writer.interface.writeAll("\x1b[0m");
+    try self.super.writer.interface.writeAll(ansi.RESET_MODE);
     // Reset termios state.
     if (initial) |mode| {
         self.mode = mode;
         try self.setMote();
     }
     // Disable alternate buffer.
-    try self.super.writer.interface.writeAll("\x1b[?1049l");
+    try self.super.writer.interface.writeAll(ansi.ALT_BUFFER_DISABLE);
 }
 
 fn setMode(self: *const Term) std.posix.UnexpectedError!void {
