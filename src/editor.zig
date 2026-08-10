@@ -20,10 +20,14 @@ const Editor = @This();
 
 const Private = struct {
     term: term.Term,
-    allocator: std.mem.Allocator,
     buffers: std.ArrayList(Buffer),
     window: ?*Buffer,
     repeat: usize = 0,
+};
+
+const Init = struct {
+    io: std.Io,
+    gpa: std.mem.Allocator,
 };
 
 const Mode = union(enum) {
@@ -43,9 +47,10 @@ const Mode = union(enum) {
 };
 
 redraw: bool = true,
-status: ?[]const u8 = null,
+status: ?[]const u8 = "Welcome to Noe, Press Ctrl-Q to quit",
 mode: Mode = .Normal,
 private: Private,
+i: Init,
 
 var debugStatus: [512]u8 = undefined;
 var debugStatusLen: usize = 0;
@@ -128,28 +133,32 @@ fn drawStatus(self: *const Editor, window: *const Buffer, c: *Canvas) void {
 }
 
 /// Wraps the terminal with an editor and initial state.
-pub fn init(allocator: std.mem.Allocator, t: term.Term) std.mem.Allocator.Error!Editor {
-    return .{ .private = .{
-        .allocator = allocator,
-        .term = t,
-        .buffers = try std.ArrayList(Buffer).initCapacity(allocator, 1),
-        .window = null,
-    } };
+pub fn init(self_init: anytype, terminal: term.Term) std.mem.Allocator.Error!Editor {
+    return .{
+        .i = .{ .gpa = self_init.gpa, .io = self_init.io },
+        .private = .{
+            .term = terminal,
+            .buffers = try std.ArrayList(Buffer).initCapacity(self_init.gpa, 1),
+            .window = null,
+        },
+    };
 }
 
-pub fn deinit(self: *Editor, allocator: std.mem.Allocator) void {
+pub fn deinit(self: *Editor) void {
+    self.private.term.deinit() catch |e| {
+        // WARN: This should be the ONLY `noreturn` in the program!
+        std.debug.panic("Failed to disable raw mode: {}", .{e});
+    };
     for (self.private.buffers.items) |*buffer| {
         buffer.buffer.deinit();
     }
-    self.private.buffers.deinit(allocator);
+    self.private.buffers.deinit(self.i.gpa);
 }
 
 /// Draws to terminal and waits for next keypress.
 pub fn refresh(self: *Editor) !void {
+    const gpa = self.i.gpa;
     // Allocate and create canvas.
-    var gpa: std.heap.GeneralPurposeAllocator(.{}) = .init;
-    defer _ = gpa.deinit();
-
     const winChanged = term.Term.winChanged;
     if (winChanged) {
         try self.private.term.getWindowSize();
@@ -157,11 +166,10 @@ pub fn refresh(self: *Editor) !void {
     const width = self.private.term.width();
     const height = self.private.term.height();
 
-    var allocator = gpa.allocator();
-    const buffer = try allocator.alloc(Texel, width * height);
+    const buffer = try gpa.alloc(Texel, width * height);
     @memset(buffer, .default());
     var canv: Canvas = .init(width, height, buffer);
-    defer allocator.free(buffer);
+    defer gpa.free(buffer);
 
     // Draw to canvas then write to terminal.
     if (winChanged) {
@@ -193,7 +201,8 @@ pub fn refresh(self: *Editor) !void {
 
         // TODO: calls to rebalanceScroll should dynamically consider the window's rendered position
         const WINDOW_PADDING = 2;
-        self.private.window.?.rebalanceScroll(self.private.term.height() - WINDOW_PADDING);
+        if (self.private.window) |window|
+            window.rebalanceScroll(self.private.term.height() - WINDOW_PADDING);
     }
 }
 
@@ -217,7 +226,9 @@ pub fn processKeypress(self: *Editor, keypress: Keypress) !void {
     }
 
     // Otherwise, fallback to NORMAL/SELECT behaviour.
-    try self.private.window.?.flush();
+    if (self.private.window) |window| {
+        try window.flush();
+    }
     if (self.mode == .Normal or self.mode == .Select) {
         // Record numbers to repeat
         if (!keypress.control and keypress.code >= '0' and keypress.code <= '9') {

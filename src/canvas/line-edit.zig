@@ -78,7 +78,10 @@ fn drawChunk(chunk: []const u8, context: *DrawVisitorContext) void {
 fn drawGutter(context: *const DrawVisitorContext) void {
     var gutterText: [GUTTER_SIZE]u8 = undefined;
     var stream = std.Io.Writer.fixed(&gutterText);
-    stream.print("{d:>[1]}", .{ context.line + context.row + 1, GUTTER_SIZE }) catch {
+    stream.print("{d:>[1]}", .{
+        context.line + context.row + 1,
+        GUTTER_SIZE,
+    }) catch {
         // If line number won't fit, just make do
     };
     for (gutterText, 0..) |gutterChar, i| {

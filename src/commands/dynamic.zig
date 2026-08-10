@@ -2,6 +2,7 @@ const std = @import("std");
 
 const Editor = @import("../editor.zig");
 const Rope = @import("../rope.zig");
+const Chunk = @import("../rope/chunk.zig");
 
 pub const Error = error{ PathKindError, ReadError, RopeError } || std.mem.Allocator.Error;
 
@@ -11,7 +12,7 @@ pub const Error = error{ PathKindError, ReadError, RopeError } || std.mem.Alloca
 pub const Dynamic = union(enum) {
     Open,
 
-    pub fn call(self: Dynamic, editor: *Editor, args: []u8) !void {
+    pub fn call(self: Dynamic, editor: *Editor, args: []const u8) !void {
         return switch (self) {
             .Open => open(editor, args),
         };
@@ -19,12 +20,17 @@ pub const Dynamic = union(enum) {
 };
 
 pub fn open(editor: *Editor, args: []const u8) Error!void {
-    const cwd = std.fs.cwd().realpathAlloc(editor.private.allocator, ".") catch return Error.ReadError;
-    const path = std.fs.cwd().realpathAlloc(editor.private.allocator, args) catch return Error.ReadError;
+    const io = editor.i.io;
+    const gpa = editor.i.gpa;
+
+    const cwd = std.Io.Dir.cwd().realPathFileAlloc(io, ".", gpa) catch return Error.ReadError;
+    const path = std.Io.Dir.cwd().realPathFileAlloc(io, args, gpa) catch return Error.ReadError;
     const displayPath = if (std.mem.startsWith(u8, path, cwd)) path[cwd.len + 1 ..] else path;
-    editor.private.allocator.free(cwd);
-    const file = std.fs.openFileAbsolute(path, .{}) catch return Error.ReadError;
-    const stat = file.stat() catch return Error.ReadError;
+    gpa.free(cwd);
+
+    const file = std.Io.Dir.openFileAbsolute(io, path, .{}) catch return Error.ReadError;
+    defer file.close(io);
+    const stat = file.stat(io) catch return Error.ReadError;
 
     switch (stat.kind) {
         // TODO: Follow symlink
@@ -32,14 +38,13 @@ pub fn open(editor: *Editor, args: []const u8) Error!void {
         // TODO: display file browser
         .directory => return Error.PathKindError,
         .file => {
-            defer file.close();
-
-            var buffer: [1024]u8 = undefined;
-            var reader = file.reader(&buffer);
-            var rope = try Rope.init(editor.private.allocator);
+            var buffer: [Chunk.MAX_BASE]u8 = undefined;
+            var reader = file.reader(io, &buffer);
+            var rope = try Rope.init(editor.i);
+            errdefer rope.deinit();
             rope.read(&reader.interface) catch return Error.RopeError;
 
-            try editor.private.buffers.append(editor.private.allocator, .{ .buffer = rope, .path = displayPath });
+            try editor.private.buffers.append(gpa, .{ .buffer = rope, .path = displayPath });
             editor.private.window = &editor.private.buffers.items[editor.private.buffers.items.len - 1];
         },
         else => return Error.PathKindError,

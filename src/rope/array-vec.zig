@@ -38,6 +38,7 @@ pub fn ArrayVec(comptime T: type, comptime capacity: usize) type {
                 self.private.buffer[index..self.len],
             );
             self.private.buffer[index] = item;
+            self.len += 1;
         }
 
         /// Pushes the items to the end of the array and updates the length.

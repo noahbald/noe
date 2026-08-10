@@ -6,20 +6,27 @@ const std = @import("std");
 const ansi = @import("../ansi.zig");
 const Keypress = @import("../keypress.zig");
 
+const Init = @import("./init.zig");
+
 const Term = @This();
 
-stdin: std.fs.File,
-stdout: std.fs.File,
-reader: std.fs.File.Reader,
-writer: std.fs.File.Writer,
+stdin: std.Io.File,
+stdout: std.Io.File,
+reader: std.Io.File.Reader,
+writer: std.Io.File.Writer,
 
 pub const Position = struct { col: u16, row: u16 };
 
 /// Creates a terminal handler using the given stdin and stdout references.
-pub fn init(buffer: []u8) Term {
-    const stdin = std.fs.File.stdin();
-    const stdout = std.fs.File.stdout();
-    return .{ .stdin = stdin, .stdout = stdout, .reader = stdin.reader(buffer), .writer = stdout.writer(buffer) };
+pub fn init(self_init: Init, buffer: []u8) Term {
+    const stdin = std.Io.File.stdin();
+    const stdout = std.Io.File.stdout();
+    return .{
+        .stdin = stdin,
+        .stdout = stdout,
+        .reader = stdin.reader(self_init.io, buffer),
+        .writer = stdout.writer(self_init.io, buffer),
+    };
 }
 
 /// Resets terminal state upon exit.

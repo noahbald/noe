@@ -3,6 +3,8 @@
 //! Usable wherever termios is usable, i.e. UNIX and WASI platforms.
 const std = @import("std");
 
+const Init = @import("./init.zig");
+
 const ansi = @import("../ansi.zig");
 const Keypress = @import("../keypress.zig");
 
@@ -22,8 +24,9 @@ private: Private,
 pub const PosixError = error{ BadFileDescriptor, InaccessibleMemoryArea, InvalidValue, NotATTY };
 pub const Error = (PosixError || std.posix.UnexpectedError);
 
-fn posixError(code: usize) Error!void {
-    switch (std.posix.E.init(code)) {
+fn posixError(code: anytype) Error!void {
+    const e: std.posix.E = @enumFromInt(code);
+    switch (e) {
         .SUCCESS => return,
         .BADF => return PosixError.BadFileDescriptor,
         .FAULT => return PosixError.InaccessibleMemoryArea,
@@ -36,13 +39,14 @@ fn posixError(code: usize) Error!void {
 /// A reference to the first termios state received.
 var initial: ?std.posix.termios = null;
 pub fn handlePanic() void {
-    const stdin = std.fs.File.stdin();
-    const stdout = std.fs.File.stdout();
+    const stdin = std.Io.File.stdin();
+    const stdout = std.Io.File.stdout();
     var buffer: [1024]u8 = undefined;
-    var writer = stdout.writer(&buffer);
+    var threaded = std.Io.Threaded.init_single_threaded;
+    var writer = stdout.writer(threaded.io(), &buffer);
     _disableRawMode(&writer.interface, stdin) catch {};
 }
-fn handleKill(_: c_int) callconv(.c) void {
+fn handleKill(_: std.c.SIG) callconv(.c) void {
     defer std.process.exit(1);
     handlePanic();
 }
@@ -57,7 +61,7 @@ fn listenKill() void {
 }
 
 pub var winChanged: bool = false;
-fn handleWinChange(_: c_int) callconv(.c) void {
+fn handleWinChange(_: std.c.SIG) callconv(.c) void {
     winChanged = true;
 }
 fn listenWinChange() void {
@@ -70,8 +74,8 @@ fn listenWinChange() void {
 }
 
 /// Creates a terminal handler for stdin and stdout.
-pub fn init(buffer: []u8) !Term {
-    const term: AbstractTerm = .init(buffer);
+pub fn init(self_init: Init, buffer: []u8) !Term {
+    const term: AbstractTerm = .init(self_init, buffer);
     const termios = try std.posix.tcgetattr(term.stdin.handle);
     // Ensure `deinit` is called on exit by SIGINT. Else the user's
     // terminal will be stuck in raw mode upon exit.
@@ -179,7 +183,7 @@ pub fn enableRawMode(self: *Term) (std.Io.Writer.Error || std.posix.TermiosSetEr
 pub fn disableRawMode(self: *Term) (std.Io.Writer.Error || std.posix.TermiosSetError)!void {
     try _disableRawMode(&self.super.writer.interface, self.super.stdin);
 }
-fn _disableRawMode(stdout: *std.Io.Writer, stdin: std.fs.File) (std.Io.Writer.Error || std.posix.TermiosSetError)!void {
+fn _disableRawMode(stdout: *std.Io.Writer, stdin: std.Io.File) (std.Io.Writer.Error || std.posix.TermiosSetError)!void {
     // Reset ANSI.
     try stdout.writeAll(ansi.RESET_MODE);
     // Reset termios state.

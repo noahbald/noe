@@ -25,6 +25,7 @@ cursor: Point = .init(0, 0),
 
 const SCROLL_THRESHOLD = 2;
 
+/// Apply an inserting chunk to the buffer
 pub fn flush(self: *Buffer) !void {
     if (self.insertingChunk.len == 0) return;
     try self.buffer.insert(self.buffer.pointToOffset(self.cursor), self.insertingChunk.slice());

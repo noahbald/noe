@@ -27,11 +27,15 @@ pub const Bias = enum {
 /// visitor.
 pub fn Visitor(comptime T: type, comptime C: type, comptime E: ?type) type {
     const R = if (E) |_E| _E!void else void;
+    const Noop = struct {
+        pub fn visitInternal(_: *const SumTree(T).Internal, _: C) R {}
+        pub fn visitLeaf(_: *const SumTree(T).Leaf, _: C) R {}
+    };
     return struct {
         /// A function that will be called with each internal node of the sum-tree.
-        visitInternal: ?fn (*const SumTree(T).Internal, C) R,
+        visitInternal: *const fn (*const SumTree(T).Internal, C) R = Noop.visitInternal,
         /// A function that will be called with each leaf node of the sum-tree.
-        visitLeaf: ?fn (*const SumTree(T).Leaf, C) R,
+        visitLeaf: *const fn (*const SumTree(T).Leaf, C) R = Noop.visitLeaf,
 
         const Self = @This();
 
@@ -46,12 +50,10 @@ pub fn Visitor(comptime T: type, comptime C: type, comptime E: ?type) type {
         pub fn visitDirection(self: *const Self, comptime reverse: bool, node: *const SumTree(T), context: C) R {
             switch (node.*) {
                 .internal => |*internal| {
-                    if (self.visitInternal) |f| {
-                        if (E) |_| {
-                            try f(internal, context);
-                        } else {
-                            f(internal, context);
-                        }
+                    if (E) |_| {
+                        try self.visitInternal(internal, context);
+                    } else {
+                        self.visitInternal(internal, context);
                     }
                     const children = internal.childTrees.slice();
                     for (0..children.len) |i| {
@@ -64,12 +66,10 @@ pub fn Visitor(comptime T: type, comptime C: type, comptime E: ?type) type {
                     }
                 },
                 .leaf => |*leaf| {
-                    if (self.visitLeaf) |f| {
-                        if (E) |_| {
-                            try f(leaf, context);
-                        } else {
-                            f(leaf, context);
-                        }
+                    if (E) |_| {
+                        try self.visitLeaf(leaf, context);
+                    } else {
+                        self.visitLeaf(leaf, context);
                     }
                 },
             }
@@ -273,14 +273,13 @@ pub fn SumTree(comptime T: type) type {
                     // Otherwise, split it
                     const newLeaf = try gpa.create(Self);
                     newLeaf.* = .{ .leaf = .{
-                        .summary = T.Summary.zero(context),
+                        .summary = itemSummary,
                         .items = .init,
                         .itemSummaries = .init,
                     } };
 
                     try newLeaf.leaf.items.push(item);
                     try newLeaf.leaf.itemSummaries.push(itemSummary);
-                    newLeaf.leaf.summary = newLeaf.leaf.summary.add(&itemSummary, context);
 
                     // Return leaf to be handled by parent
                     self.checkInvariants(context);
@@ -291,11 +290,12 @@ pub fn SumTree(comptime T: type) type {
 
                     // Push and handle split
                     if (try lastChild.*.push(gpa, item, context)) |newChild| {
+                        const childSummary = newChild.summary();
                         // If child can fit into this node, push it
                         if (internal.childTrees.len < TREE_MAX) {
                             try internal.childTrees.push(newChild);
-                            try internal.childSummaries.push(newChild.summary());
-                            internal.summary = internal.summary.add(&newChild.summary(), context);
+                            try internal.childSummaries.push(childSummary);
+                            internal.summary = internal.summary.add(&childSummary, context);
                             self.checkInvariants(context);
                             return null;
                         }
@@ -303,7 +303,7 @@ pub fn SumTree(comptime T: type) type {
                         const newInternal = try gpa.create(Self);
                         newInternal.* = .{ .internal = .{
                             .height = internal.height,
-                            .summary = newChild.summary(),
+                            .summary = childSummary,
                             .childSummaries = .init,
                             .childTrees = .init,
                         } };

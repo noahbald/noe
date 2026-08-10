@@ -3,6 +3,8 @@
 //! Usable wherever console is usable, i.e. UNIX and WASI platforms.
 const std = @import("std");
 
+const Init = @import("./init.zig");
+
 const ansi = @import("../ansi.zig");
 const Keypress = @import("../keypress.zig");
 
@@ -50,8 +52,8 @@ fn listenKill() void {
 
 pub const winChanged = true;
 
-pub fn init(buffer: []u8) !Term {
-    const term: AbstractTerm = .init(buffer);
+pub fn init(self_init: Init, buffer: []u8) !Term {
+    const term: AbstractTerm = .init(self_init, buffer);
     var mode: Mode = .{};
     windowsError(std.os.windows.kernel32.GetConsoleMode(term.stdin.handle, &mode.input));
     windowsError(std.os.windows.kernel32.GetConsoleMode(term.stdout.handle, &mode.output));

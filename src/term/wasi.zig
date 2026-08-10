@@ -3,6 +3,8 @@
 //! Usable wherever ANSI is usable, i.e. WASI and POSIX systems.
 const std = @import("std");
 
+const Init = @import("./init.zig");
+
 const Keypress = @import("../keypress.zig");
 
 const AbstractTerm = @import("abstract.zig");
@@ -21,8 +23,8 @@ pub fn handlePanic() void {}
 pub const winChanged = true;
 
 /// Creates a terminal handler for stdin and stdout.
-pub fn init(buffer: []u8) !Term {
-    const term: AbstractTerm = .init(buffer);
+pub fn init(self_init: Init, buffer: []u8) !Term {
+    const term: AbstractTerm = .init(self_init, buffer);
 
     var self: Term = .{ .super = term, .private = .{ .size = undefined } };
     // Cache initial window size

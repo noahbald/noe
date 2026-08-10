@@ -15,20 +15,21 @@ const SumTree = sumTree.SumTree;
 pub const Tree = SumTree(Chunk);
 
 const Error = sumTree.Error || arrayVec.Error || std.mem.Allocator.Error;
+const Init = struct { gpa: std.mem.Allocator };
 
 /// The sum-tree of the rope's contents, stored as chunks of text.
 tree: *Tree,
-gpa: std.mem.Allocator,
+i: Init,
 
-pub fn init(gpa: std.mem.Allocator) std.mem.Allocator.Error!Rope {
+pub fn init(self_init: anytype) std.mem.Allocator.Error!Rope {
     return .{
-        .tree = try .init(gpa, void{}),
-        .gpa = gpa,
+        .tree = try .init(self_init.gpa, void{}),
+        .i = .{ .gpa = self_init.gpa },
     };
 }
 
 pub fn deinit(self: *Rope) void {
-    self.tree.deinit(self.gpa);
+    self.tree.deinit(self.i.gpa);
 }
 
 /// Take a reference to a reader and from it, generates a rope containing the reader's output.
@@ -73,8 +74,8 @@ pub fn push(self: *Rope, text: []const u8) Error!void {
         offset += chunkSize;
 
         // Push chunk and handle split
-        if (try self.tree.push(self.gpa, chunk, {})) |right| {
-            const root = try self.gpa.create(Tree);
+        if (try self.tree.push(self.i.gpa, chunk, {})) |right| {
+            const root = try self.i.gpa.create(Tree);
             const left = self.tree;
 
             root.* = .{ .internal = .{
@@ -99,7 +100,7 @@ pub fn insert(self: *Rope, offset: usize, text: []const u8) Error!void {
     if (offset >= self.len()) {
         return self.push(text);
     } else if (offset == 0) {
-        var left = try init(self.gpa);
+        var left = try init(self.i);
         errdefer left.deinit();
         try left.push(text);
         std.mem.swap(Tree, self.tree, left.tree); // left is now right
@@ -108,7 +109,7 @@ pub fn insert(self: *Rope, offset: usize, text: []const u8) Error!void {
     }
 
     var right = try self.split(offset);
-    var middle = try init(self.gpa);
+    var middle = try init(self.i);
     try middle.push(text);
 
     try self.join(&middle);
@@ -136,7 +137,7 @@ pub fn remove(self: *Rope, offset: usize) Error!void {
 pub fn split(self: *Rope, offset: usize) Error!?Rope {
     self.tree.checkInvariants(void{});
 
-    var right: Rope = .{ .tree = undefined, .gpa = self.gpa };
+    var right: Rope = .{ .tree = undefined, .i = self.i };
     right.tree = try self.splitTree(offset, 0) orelse return null;
     self.tree.checkInvariants(void{});
     right.tree.checkInvariants(void{});
@@ -159,7 +160,7 @@ fn splitTree(self: *Rope, offset: usize, baseOffset: usize) Error!?*Tree {
             const i = splitIndex orelse return null;
 
             // Split boundary point
-            var middle: Rope = .{ .tree = undefined, .gpa = self.gpa };
+            var middle: Rope = .{ .tree = undefined, .i = self.i };
             middle.tree = internal.childTrees.slice()[i];
             const rightStart = try middle.splitTree(offset, currentOffset);
             internal.childSummaries.sliceMut()[i] = internal.childTrees.slice()[i].summary();
@@ -168,8 +169,8 @@ fn splitTree(self: *Rope, offset: usize, baseOffset: usize) Error!?*Tree {
 
             if (hasRightContent) {
                 // Build right tree
-                var right = try self.gpa.create(Tree);
-                errdefer right.deinit(self.gpa);
+                var right = try self.i.gpa.create(Tree);
+                errdefer right.deinit(self.i.gpa);
                 right.* = .{ .internal = .{
                     .height = internal.height,
                     .summary = Chunk.Summary.zero(void{}),
@@ -183,7 +184,10 @@ fn splitTree(self: *Rope, offset: usize, baseOffset: usize) Error!?*Tree {
                     try right.internal.childSummaries.push(sum);
                     right.internal.summary = sum;
                 }
-                for (internal.childTrees.slice()[i + 1 ..], internal.childSummaries.slice()[i + 1 ..]) |child, sum| {
+                for (
+                    internal.childTrees.slice()[i + 1 ..],
+                    internal.childSummaries.slice()[i + 1 ..],
+                ) |child, sum| {
                     try right.internal.childTrees.push(child);
                     try right.internal.childSummaries.push(sum);
                     right.internal.summary = right.internal.summary.add(&sum, void{});
@@ -191,7 +195,7 @@ fn splitTree(self: *Rope, offset: usize, baseOffset: usize) Error!?*Tree {
 
                 // Slice left tree
                 if (middle.summary().len == 0) {
-                    internal.childTrees.slice()[i].deinit(self.gpa);
+                    internal.childTrees.slice()[i].deinit(self.i.gpa);
                     internal.childTrees.len = i;
                     internal.childSummaries.len = i;
                 } else {
@@ -230,8 +234,8 @@ fn splitTree(self: *Rope, offset: usize, baseOffset: usize) Error!?*Tree {
             const rightStart: Chunk = try .init(middle.slice()[splitText..]);
 
             // Build right tree
-            var right = try self.gpa.create(Tree);
-            errdefer right.deinit(self.gpa);
+            var right = try self.i.gpa.create(Tree);
+            errdefer right.deinit(self.i.gpa);
             right.* = .{ .leaf = .{
                 .summary = rightStart.summary(void{}),
                 .items = .init,
@@ -285,8 +289,8 @@ fn joinTree(self: *Rope, other: *Rope) Error!void {
     const leftHeight = self.tree.height();
     const rightHeight = other.tree.height();
     if (leftHeight == rightHeight) {
-        const parent = try self.gpa.create(Tree);
-        errdefer parent.deinit(self.gpa);
+        const parent = try self.i.gpa.create(Tree);
+        errdefer parent.deinit(self.i.gpa);
         parent.* = .{ .internal = .{
             .height = leftHeight + 1,
             .summary = self.tree.summary().add(&other.tree.summary(), void{}),
@@ -316,7 +320,7 @@ fn joinTreeEdge(self: *Rope, comptime left: bool, other: *Rope) Error!void {
             const childHeight = child.height();
             const otherHeight = other.tree.height();
             if (childHeight > otherHeight) {
-                var childRope: Rope = .{ .tree = child, .gpa = self.gpa };
+                var childRope: Rope = .{ .tree = child, .i = self.i };
                 try childRope.joinTreeEdge(left, other);
 
                 internal.childSummaries.sliceMut()[i] = child.summary();
@@ -334,8 +338,8 @@ fn joinTreeEdge(self: *Rope, comptime left: bool, other: *Rope) Error!void {
                 }
                 internal.summary = internal.summary.add(&other.summary(), void{});
             } else {
-                const parent = try self.gpa.create(Tree);
-                errdefer parent.deinit(self.gpa);
+                const parent = try self.i.gpa.create(Tree);
+                errdefer parent.deinit(self.i.gpa);
                 parent.* = .{ .internal = .{
                     .height = self.tree.height() + 1,
                     .summary = other.summary().add(&child.summary(), void{}),
@@ -359,8 +363,8 @@ fn joinTreeEdge(self: *Rope, comptime left: bool, other: *Rope) Error!void {
             }
         },
         .leaf => {
-            const parent = try self.gpa.create(Tree);
-            errdefer parent.deinit(self.gpa);
+            const parent = try self.i.gpa.create(Tree);
+            errdefer parent.deinit(self.i.gpa);
 
             parent.* = .{ .internal = .{
                 .height = @max(self.tree.height(), other.tree.height()) + 1,
@@ -600,7 +604,6 @@ pub const Slice = struct {
             }
         };
         const visitor: Tree.ThisVisitor(*Visit.Context, E) = .{
-            .visitInternal = null,
             .visitLeaf = Visit.visitLeaf,
         };
         var c: Visit.Context = .{
@@ -909,4 +912,146 @@ fn debugSummary(tree: *const Tree, indent: usize) void {
             std.debug.print(" ({d} bytes total)\n", .{n});
         },
     }
+}
+
+test lines {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}).init;
+    const alloc = gpa.allocator();
+    var rope: Rope = try .init(alloc);
+    const source =
+        \\# Noah's Ordinary Editor
+        \\
+        \\Noe is a terminal editor inspired by Kilo and Kibi; 1024 LOC terminals.
+        \\
+        \\A text editor with modern features; configurable by modification and extensible by invocation.
+        \\
+        \\## Features
+        \\
+        \\- [x] UTF-8 Support
+        \\- [x] Portable across Windows, POSIX, and WASI platforms
+        \\- [ ] Helix inspired controls and commands
+        \\- Modern and simple internals
+        \\  - [x] Written in Zig
+        \\  - [x] Rope for text processing
+        \\  - [ ] Tree-sitter integration
+        \\  - [ ] LSP support
+        \\  - [x] Zero dependencies
+        \\
+        \\## Prior Art
+        \\
+        \\Noe may borrow code and concepts from these open-source projects
+        \\
+        \\- [Kilo](https://viewsourcecode.org/snaptoken/kilo/index.html), a tutorial text-editor written in around 1000 LOC
+        \\- [Kibi](https://github.com/ilai-deutel/kibi), a Kilo inspired text-editor written in Rust
+        \\- [Kilo.zig](https://github.com/h4rr9/kilo.zig), a Kilo implementation in Zig
+        \\- [Helix](https://github.com/helix-editor/helix), canvas rendering, commands
+        \\- [Zed](https://zed.dev/blog/zed-decoded-rope-sumtree), with great r
+        \\# Noah's Ordinary Editor
+        \\
+        \\Noe is a terminal editor inspired by Kilo and Kibi; 1024 LOC terminals.
+        \\
+        \\A text editor with modern features; configurable by modification and extensible by invocation.
+        \\
+        \\## Features
+        \\
+        \\- [x] UTF-8 Support
+        \\- [x] Portable across Windows, POSIX, and WASI platforms
+        \\- [ ] Helix inspired controls and commands
+        \\- Modern and simple internals
+        \\  - [x] Written in Zig
+        \\  - [x] Rope for text processing
+        \\  - [ ] Tree-sitter integration
+        \\  - [ ] LSP support
+        \\  - [x] Zero dependencies
+        \\
+        \\## Prior Art
+        \\
+        \\Noe may borrow code and concepts from these open-source projects
+        \\
+        \\- [Kilo](https://viewsourcecode.org/snaptoken/kilo/index.html), a tutorial text-editor written in around 1000 LOC
+        \\- [Kibi](https://github.com/ilai-deutel/kibi), a Kilo inspired text-editor written in Rust
+        \\- [Kilo.zig](https://github.com/h4rr9/kilo.zig), a Kilo implementation in Zig
+        \\- [Helix](https://github.com/helix-editor/helix), canvas rendering, commands
+        \\- [Zed](https://zed.dev/blog/zed-decoded-rope-sumtree), with great r
+        \\# Noah's Ordinary Editor
+        \\
+        \\Noe is a terminal editor inspired by Kilo and Kibi; 1024 LOC terminals.
+        \\
+        \\A text editor with modern features; configurable by modification and extensible by invocation.
+        \\
+        \\## Features
+        \\
+        \\- [x] UTF-8 Support
+        \\- [x] Portable across Windows, POSIX, and WASI platforms
+        \\- [ ] Helix inspired controls and commands
+        \\- Modern and simple internals
+        \\  - [x] Written in Zig
+        \\  - [x] Rope for text processing
+        \\  - [ ] Tree-sitter integration
+        \\  - [ ] LSP support
+        \\  - [x] Zero dependencies
+        \\
+        \\## Prior Art
+        \\
+        \\Noe may borrow code and concepts from these open-source projects
+        \\
+        \\- [Kilo](https://viewsourcecode.org/snaptoken/kilo/index.html), a tutorial text-editor written in around 1000 LOC
+        \\- [Kibi](https://github.com/ilai-deutel/kibi), a Kilo inspired text-editor written in Rust
+        \\- [Kilo.zig](https://github.com/h4rr9/kilo.zig), a Kilo implementation in Zig
+        \\- [Helix](https://github.com/helix-editor/helix), canvas rendering, commands
+        \\- [Zed](https://zed.dev/blog/zed-decoded-rope-sumtree), with great r
+        \\# Noah's Ordinary Editor
+        \\
+        \\Noe is a terminal editor inspired by Kilo and Kibi; 1024 LOC terminals.
+        \\
+        \\A text editor with modern features; configurable by modification and extensible by invocation.
+        \\
+        \\## Features
+        \\
+        \\- [x] UTF-8 Support
+        \\- [x] Portable across Windows, POSIX, and WASI platforms
+        \\- [ ] Helix inspired controls and commands
+        \\- Modern and simple internals
+        \\  - [x] Written in Zig
+        \\  - [x] Rope for text processing
+        \\  - [ ] Tree-sitter integration
+        \\  - [ ] LSP support
+        \\  - [x] Zero dependencies
+        \\
+        \\## Prior Art
+        \\
+        \\Noe may borrow code and concepts from these open-source projects
+        \\
+        \\- [Kilo](https://viewsourcecode.org/snaptoken/kilo/index.html), a tutorial text-editor written in around 1000 LOC
+        \\- [Kibi](https://github.com/ilai-deutel/kibi), a Kilo inspired text-editor written in Rust
+        \\- [Kilo.zig](https://github.com/h4rr9/kilo.zig), a Kilo implementation in Zig
+        \\- [Helix](https://github.com/helix-editor/helix), canvas rendering, commands
+        \\- [Zed](https://zed.dev/blog/zed-decoded-rope-sumtree), with 
+    ;
+    std.debug.print("{d}\n", .{source.len});
+    var reader = std.Io.Reader.fixed(source);
+    try rope.read(&reader);
+
+    var before = std.time.milliTimestamp();
+    for (0..1_000_000) |_| {
+        _ = rope.lines();
+    }
+    var after = std.time.milliTimestamp();
+    std.debug.print("Time: {d}ms\n", .{after - before});
+
+    before = std.time.milliTimestamp();
+    var row: usize = 0;
+    var column: usize = 0;
+    for (0..1_000_000) |_| {
+        for (source) |byte| {
+            if (byte == '\n') {
+                row += 1;
+                column = 0;
+            } else {
+                column += 1;
+            }
+        }
+    }
+    after = std.time.milliTimestamp();
+    std.debug.print("Time: {d}ms\n", .{after - before});
 }

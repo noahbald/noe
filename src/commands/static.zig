@@ -130,61 +130,61 @@ pub const Static = union(enum) {
 };
 
 fn cursorLeft(editor: *Editor) void {
-    editor.private.window.?.cursorLeft();
+    if (editor.private.window) |window| window.cursorLeft();
 }
 fn cursorDown(editor: *Editor) void {
-    editor.private.window.?.cursorDown();
+    if (editor.private.window) |window| window.cursorDown();
 }
 fn cursorUp(editor: *Editor) void {
-    editor.private.window.?.cursorUp();
+    if (editor.private.window) |window| window.cursorUp();
 }
 fn cursorRight(editor: *Editor) void {
-    editor.private.window.?.cursorRight();
+    if (editor.private.window) |window| window.cursorRight();
 }
 fn nextWordStart(editor: *Editor) void {
-    editor.private.window.?.nextWordStart(false);
+    if (editor.private.window) |window| window.nextWordStart(false);
 }
 fn prevWordStart(editor: *Editor) void {
-    editor.private.window.?.prevWordStart(false);
+    if (editor.private.window) |window| window.prevWordStart(false);
 }
 fn nextWordEnd(editor: *Editor) void {
-    editor.private.window.?.nextWordEnd(false);
+    if (editor.private.window) |window| window.nextWordEnd(false);
 }
 fn nextLongWordStart(editor: *Editor) void {
-    editor.private.window.?.nextWordStart(true);
+    if (editor.private.window) |window| window.nextWordStart(true);
 }
 fn prevLongWordStart(editor: *Editor) void {
-    editor.private.window.?.prevWordStart(true);
+    if (editor.private.window) |window| window.prevWordStart(true);
 }
 fn nextLongWordEnd(editor: *Editor) void {
-    editor.private.window.?.nextWordEnd(true);
+    if (editor.private.window) |window| window.nextWordEnd(true);
 }
 fn findTillNextChar(editor: *Editor, char: u8) void {
-    editor.private.window.?.findChar(false, true, char);
+    if (editor.private.window) |window| window.findChar(false, true, char);
 }
 fn findNextChar(editor: *Editor, char: u8) void {
-    editor.private.window.?.findChar(false, false, char);
+    if (editor.private.window) |window| window.findChar(false, false, char);
 }
 fn findTillPrevChar(editor: *Editor, char: u8) void {
-    editor.private.window.?.findChar(true, true, char);
+    if (editor.private.window) |window| window.findChar(true, true, char);
 }
 fn findPrevChar(editor: *Editor, char: u8) void {
-    editor.private.window.?.findChar(true, false, char);
+    if (editor.private.window) |window| window.findChar(true, false, char);
 }
 fn gotoLine(editor: *Editor, line: usize) void {
-    editor.private.window.?.gotoLine(line);
+    if (editor.private.window) |window| window.gotoLine(line);
 }
 fn pageUp(editor: *Editor) void {
-    editor.private.window.?.pageUp(editor.private.term.height());
+    if (editor.private.window) |window| window.pageUp(editor.private.term.height());
 }
 fn pageDown(editor: *Editor) void {
-    editor.private.window.?.pageDown(editor.private.term.height());
+    if (editor.private.window) |window| window.pageDown(editor.private.term.height());
 }
 fn gotoLineStart(editor: *Editor) void {
-    editor.private.window.?.gotoLineStart();
+    if (editor.private.window) |window| window.gotoLineStart();
 }
 fn gotoLineEnd(editor: *Editor) void {
-    editor.private.window.?.gotoLineEnd();
+    if (editor.private.window) |window| window.gotoLineEnd();
 }
 fn insertMode(editor: *Editor) void {
     editor.mode = .Insert;
@@ -205,15 +205,19 @@ fn insertAtLineEnd(editor: *Editor) void {
     insertMode(editor);
 }
 fn openAbove(editor: *Editor) Error!void {
-    cursorUp(editor);
-    gotoLineEnd(editor);
-    editor.private.window.?.insert('\n') catch return Error.EditFailed;
-    insertMode(editor);
+    if (editor.private.window) |window| {
+        cursorUp(editor);
+        gotoLineEnd(editor);
+        window.insert('\n') catch return Error.EditFailed;
+        insertMode(editor);
+    }
 }
 fn openBelow(editor: *Editor) Error!void {
-    gotoLineEnd(editor);
-    editor.private.window.?.insert('\n') catch return Error.EditFailed;
-    insertMode(editor);
+    if (editor.private.window) |window| {
+        gotoLineEnd(editor);
+        window.insert('\n') catch return Error.EditFailed;
+        insertMode(editor);
+    }
 }
 fn quit(editor: *Editor) Error!void {
     // TODO: Check unsaved files
