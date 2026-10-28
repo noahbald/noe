@@ -30,7 +30,7 @@ pub fn flush(self: *Buffer) !void {
     if (self.insertingChunk.len == 0) return;
     try self.buffer.insert(self.buffer.pointToOffset(self.cursor), self.insertingChunk.slice());
     const chunk = try Chunk.init(self.insertingChunk.slice());
-    self.cursor = self.cursor.add(&chunk.summary(void{}).lines);
+    self.cursor = self.cursor.add(&chunk.summary({}).lines);
     self.insertingChunk.len = 0;
 }
 pub fn insert(self: *Buffer, char: u8) !void {

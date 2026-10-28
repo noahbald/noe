@@ -23,7 +23,7 @@ i: Init,
 
 pub fn init(self_init: anytype) std.mem.Allocator.Error!Rope {
     return .{
-        .tree = try .init(self_init.gpa, void{}),
+        .tree = try .init(self_init.gpa, {}),
         .i = .{ .gpa = self_init.gpa },
     };
 }
@@ -130,17 +130,17 @@ pub fn remove(self: *Rope, offset: usize) Error!void {
             try self.join(r2);
         }
     }
-    self.tree.checkInvariants(void{});
+    self.tree.checkInvariants({});
 }
 
 /// Splits the rope by mutation at the given offset, popping and returning the remaining rope.
 pub fn split(self: *Rope, offset: usize) Error!?Rope {
-    self.tree.checkInvariants(void{});
+    self.tree.checkInvariants({});
 
     var right: Rope = .{ .tree = undefined, .i = self.i };
     right.tree = try self.splitTree(offset, 0) orelse return null;
-    self.tree.checkInvariants(void{});
-    right.tree.checkInvariants(void{});
+    self.tree.checkInvariants({});
+    right.tree.checkInvariants({});
     return right;
 }
 fn splitTree(self: *Rope, offset: usize, baseOffset: usize) Error!?*Tree {
@@ -173,7 +173,7 @@ fn splitTree(self: *Rope, offset: usize, baseOffset: usize) Error!?*Tree {
                 errdefer right.deinit(self.i.gpa);
                 right.* = .{ .internal = .{
                     .height = internal.height,
-                    .summary = Chunk.Summary.zero(void{}),
+                    .summary = Chunk.Summary.zero({}),
                     .childSummaries = .init,
                     .childTrees = .init,
                 } };
@@ -190,7 +190,7 @@ fn splitTree(self: *Rope, offset: usize, baseOffset: usize) Error!?*Tree {
                 ) |child, sum| {
                     try right.internal.childTrees.push(child);
                     try right.internal.childSummaries.push(sum);
-                    right.internal.summary = right.internal.summary.add(&sum, void{});
+                    right.internal.summary = right.internal.summary.add(&sum, {});
                 }
 
                 // Slice left tree
@@ -202,12 +202,12 @@ fn splitTree(self: *Rope, offset: usize, baseOffset: usize) Error!?*Tree {
                     internal.childTrees.len = i + 1;
                     internal.childSummaries.len = i + 1;
                 }
-                internal.summary = Chunk.Summary.zero(void{});
+                internal.summary = Chunk.Summary.zero({});
                 for (internal.childSummaries.slice()) |sum| {
-                    internal.summary = internal.summary.add(&sum, void{});
+                    internal.summary = internal.summary.add(&sum, {});
                 }
-                self.tree.checkInvariants(void{});
-                right.checkInvariants(void{});
+                self.tree.checkInvariants({});
+                right.checkInvariants({});
                 return right;
             } else {
                 return null;
@@ -237,17 +237,17 @@ fn splitTree(self: *Rope, offset: usize, baseOffset: usize) Error!?*Tree {
             var right = try self.i.gpa.create(Tree);
             errdefer right.deinit(self.i.gpa);
             right.* = .{ .leaf = .{
-                .summary = rightStart.summary(void{}),
+                .summary = rightStart.summary({}),
                 .items = .init,
                 .itemSummaries = .init,
             } };
             try right.leaf.items.push(rightStart);
-            try right.leaf.itemSummaries.push(rightStart.summary(void{}));
+            try right.leaf.itemSummaries.push(rightStart.summary({}));
             for (leaf.items.slice()[i + 1 ..]) |item| {
                 try right.leaf.items.push(item);
-                const sum = item.summary(void{});
+                const sum = item.summary({});
                 try right.leaf.itemSummaries.push(sum);
-                right.leaf.summary = right.leaf.summary.add(&sum, void{});
+                right.leaf.summary = right.leaf.summary.add(&sum, {});
             }
 
             // Slice left tree
@@ -256,16 +256,16 @@ fn splitTree(self: *Rope, offset: usize, baseOffset: usize) Error!?*Tree {
                 leaf.itemSummaries.len = i;
             } else {
                 leaf.items.sliceMut()[i] = try .init(middle.text.slice()[0..splitText]);
-                leaf.itemSummaries.sliceMut()[i] = leaf.items.slice()[i].summary(void{});
+                leaf.itemSummaries.sliceMut()[i] = leaf.items.slice()[i].summary({});
                 leaf.items.len = i + 1;
                 leaf.itemSummaries.len = i + 1;
             }
-            leaf.summary = Chunk.Summary.zero(void{});
+            leaf.summary = Chunk.Summary.zero({});
             for (leaf.items.slice()) |item| {
-                leaf.summary = leaf.summary.add(&item.summary(void{}), void{});
+                leaf.summary = leaf.summary.add(&item.summary({}), {});
             }
-            self.tree.checkInvariants(void{});
-            right.checkInvariants(void{});
+            self.tree.checkInvariants({});
+            right.checkInvariants({});
             return right;
         },
     }
@@ -283,7 +283,7 @@ pub fn join(self: *Rope, other: *Rope) Error!void {
         return;
     }
     try self.joinTree(other);
-    self.tree.checkInvariants(void{});
+    self.tree.checkInvariants({});
 }
 fn joinTree(self: *Rope, other: *Rope) Error!void {
     const leftHeight = self.tree.height();
@@ -293,7 +293,7 @@ fn joinTree(self: *Rope, other: *Rope) Error!void {
         errdefer parent.deinit(self.i.gpa);
         parent.* = .{ .internal = .{
             .height = leftHeight + 1,
-            .summary = self.tree.summary().add(&other.tree.summary(), void{}),
+            .summary = self.tree.summary().add(&other.tree.summary(), {}),
             .childSummaries = .init,
             .childTrees = .init,
         } };
@@ -324,9 +324,9 @@ fn joinTreeEdge(self: *Rope, comptime left: bool, other: *Rope) Error!void {
                 try childRope.joinTreeEdge(left, other);
 
                 internal.childSummaries.sliceMut()[i] = child.summary();
-                internal.summary = Chunk.Summary.zero(void{});
+                internal.summary = Chunk.Summary.zero({});
                 for (internal.childSummaries.slice()) |sum| {
-                    internal.summary = internal.summary.add(&sum, void{});
+                    internal.summary = internal.summary.add(&sum, {});
                 }
             } else if (childHeight == otherHeight) {
                 if (left) {
@@ -336,13 +336,13 @@ fn joinTreeEdge(self: *Rope, comptime left: bool, other: *Rope) Error!void {
                     try internal.childTrees.push(other.tree);
                     try internal.childSummaries.push(other.summary());
                 }
-                internal.summary = internal.summary.add(&other.summary(), void{});
+                internal.summary = internal.summary.add(&other.summary(), {});
             } else {
                 const parent = try self.i.gpa.create(Tree);
                 errdefer parent.deinit(self.i.gpa);
                 parent.* = .{ .internal = .{
                     .height = self.tree.height() + 1,
-                    .summary = other.summary().add(&child.summary(), void{}),
+                    .summary = other.summary().add(&child.summary(), {}),
                     .childSummaries = .init,
                     .childTrees = .init,
                 } };
@@ -356,9 +356,9 @@ fn joinTreeEdge(self: *Rope, comptime left: bool, other: *Rope) Error!void {
 
                 internal.childTrees.sliceMut()[i] = parent;
                 internal.childSummaries.sliceMut()[i] = parent.summary();
-                internal.summary = Chunk.Summary.zero(void{});
+                internal.summary = Chunk.Summary.zero({});
                 for (internal.childSummaries.slice()) |sum| {
-                    internal.summary = internal.summary.add(&sum, void{});
+                    internal.summary = internal.summary.add(&sum, {});
                 }
             }
         },
@@ -368,7 +368,7 @@ fn joinTreeEdge(self: *Rope, comptime left: bool, other: *Rope) Error!void {
 
             parent.* = .{ .internal = .{
                 .height = @max(self.tree.height(), other.tree.height()) + 1,
-                .summary = self.tree.summary().add(&other.tree.summary(), void{}),
+                .summary = self.tree.summary().add(&other.tree.summary(), {}),
                 .childSummaries = .init,
                 .childTrees = .init,
             } };
@@ -404,7 +404,7 @@ pub fn pointToOffset(self: *const Rope, point: Point) usize {
     const selfSummary = self.summary();
     if (point.cmp(&selfSummary.lines).gte()) return selfSummary.len;
 
-    const result = self.tree.find(sumTree.Dimensions(Point, Point.USize, null), Point, void{}, &point, .left);
+    const result = self.tree.find(sumTree.Dimensions(Point, Point.USize, null), Point, {}, &point, .left);
     const start = result.start;
     const item = result.item;
     const overshoot = point.sub(&start.d1);
@@ -417,11 +417,11 @@ pub fn offsetToPoint(self: *const Rope, offset: usize) Point {
         return sum.lines;
     }
     const target: Point.USize = .{ .inner = offset };
-    const result = self.tree.find(sumTree.Dimensions(Point.USize, Point, null), Point.USize, void{}, &target, .left);
+    const result = self.tree.find(sumTree.Dimensions(Point.USize, Point, null), Point.USize, {}, &target, .left);
     var start = result.start;
     const item = result.item;
     const overshoot = offset - start.d1.inner;
-    return start.d2.add(if (item) |chunk| &chunk.asSlice().offsetToPoint(overshoot) else &Point.zero(void{}));
+    return start.d2.add(if (item) |chunk| &chunk.asSlice().offsetToPoint(overshoot) else &Point.zero({}));
 }
 
 /// Writes the contents of the rope to the writer, without flushing it.
@@ -869,9 +869,9 @@ test "post edit" {
 
     // Act
     try rope.remove(Chunk.MAX_BASE);
-    rope.tree.checkInvariants(void{});
+    rope.tree.checkInvariants(void);
     try rope.remove(Chunk.MAX_BASE);
-    rope.tree.checkInvariants(void{});
+    rope.tree.checkInvariants(void);
     const ropeSlice = rope.sliceRows(0, 6);
 
     // Assert

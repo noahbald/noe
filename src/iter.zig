@@ -168,7 +168,7 @@ pub fn Iter(T: type) type {
         /// Since closures are unavailable in zig, `mapScope` can be used to provide a scope
         /// or context that's passed to the function.
         pub fn map(self: Self, R: type, f: fn (T, void) R) Map(Self, R, void) {
-            return self.mapScope(self, R, f, void{});
+            return self.mapScope(self, R, f, void);
         }
 
         /// Takes a function and context and creates an iterator that calls the function on each element.

@@ -25,7 +25,7 @@ pub const PosixError = error{ BadFileDescriptor, InaccessibleMemoryArea, Invalid
 pub const Error = (PosixError || std.posix.UnexpectedError);
 
 fn posixError(code: anytype) Error!void {
-    const e: std.posix.E = @enumFromInt(code);
+    const e: std.posix.E = @fromBackingInt(@intCast(code));
     switch (e) {
         .SUCCESS => return,
         .BADF => return PosixError.BadFileDescriptor,
@@ -173,9 +173,9 @@ pub fn enableRawMode(self: *Term) (std.Io.Writer.Error || std.posix.TermiosSetEr
     // Set character size to 8.
     self.termios.cflag.CSIZE = .CS8;
     // Set minimum bytes needed before `read` will trigger.
-    self.termios.cc[@intFromEnum(std.posix.V.MIN)] = 0;
+    self.termios.cc[@backingInt(std.posix.V.MIN)] = 0;
     // Set maximum time needed before `read` will trigger.
-    self.termios.cc[@intFromEnum(std.posix.V.TIME)] = 1;
+    self.termios.cc[@backingInt(std.posix.V.TIME)] = 1;
     try std.posix.tcsetattr(self.super.stdin.handle, .FLUSH, self.termios);
 }
 
@@ -206,10 +206,10 @@ pub fn takeKeypress(self: *Term) !?Keypress {
 }
 
 comptime {
-    const decls = @typeInfo(AbstractTerm).@"struct".decls;
+    const decls = @typeInfo(AbstractTerm).@"struct".decl_names;
     for (decls) |decl| {
-        if (std.meta.hasMethod(AbstractTerm, decl.name) and !std.meta.hasMethod(Term, decl.name)) {
-            @compileLog(decl.name);
+        if (std.meta.hasMethod(AbstractTerm, decl) and !std.meta.hasMethod(Term, decl)) {
+            @compileLog(decl);
             @compileError("Posix struct missing abstract method");
         }
     }

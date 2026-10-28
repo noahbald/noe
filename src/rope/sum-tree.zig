@@ -86,11 +86,11 @@ pub fn Dimensions(comptime D1: type, comptime D2: type, comptime D3: ?type) type
         const Self = @This();
 
         pub fn zero(cx: D1.Context) Self {
-            return .{ .d1 = .zero(cx), .d2 = .zero(cx), .d3 = if (D3) |_| .zero(cx) else void{} };
+            return .{ .d1 = .zero(cx), .d2 = .zero(cx), .d3 = if (D3) |_| .zero(cx) else {} };
         }
 
         pub fn clone(self: *const Self) Self {
-            return .{ .d1 = self.d1.clone(), .d2 = self.d2.clone(), .d3 = if (D3) |_| self.d3.clone() else void{} };
+            return .{ .d1 = self.d1.clone(), .d2 = self.d2.clone(), .d3 = if (D3) |_| self.d3.clone() else {} };
         }
 
         pub fn withAddedSummary(self: Self, summary: *const D1.Summary, cx: D1.Summary.Context) Self {
@@ -383,7 +383,7 @@ pub fn SumTree(comptime T: type) type {
             }
         };
         pub fn checkInvariants(self: *const Self, context: T.Summary.Context) void {
-            comptime if (builtin.mode != .Debug) return;
+            comptime if (builtin.mode != .debug) return;
             var cx: CheckInvariantsContext = .{ .cx = context };
             const visitor: ThisVisitor(*CheckInvariantsContext, null) = .{
                 .visitInternal = CheckInvariantsContext.visitInternal,
